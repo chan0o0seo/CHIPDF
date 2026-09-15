@@ -1,0 +1,81 @@
+{
+  "model": {
+    "model": "facebook/m2m100_418M",
+    "revision": "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636",
+    "quantization": "int8"
+  },
+  "assets": [
+    {
+      "file": "notices\\M2M100-MIT.txt",
+      "url": "https://raw.githubusercontent.com/facebookresearch/fairseq/main/LICENSE",
+      "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+    },
+    {
+      "file": "notices\\tessdata-Apache-2.0.txt",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "notices\\Tesseract-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tesseract/5.5.2/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "notices\\Leptonica-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/DanBloomberg/leptonica/1.87.0/leptonica-license.txt",
+      "sha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806"
+    },
+    {
+      "file": "notices\\cysignals-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/sagemath/cysignals/main/LICENSE",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "file": "tessdata\\jpn.traineddata",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn.traineddata",
+      "bytes": 2471260,
+      "sha256": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d"
+    },
+    {
+      "file": "tessdata\\jpn_vert.traineddata",
+      "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/jpn_vert.traineddata",
+      "bytes": 3037480,
+      "sha256": "bf1e2640954691797e2dc14f38533e601b59ee37958698ae0f0b81dc6f09c71b"
+    },
+    {
+      "file": "m2m100-int8\\config.json",
+      "bytes": 233,
+      "sha256": "72901fbd8abd89fb5cf4a388f26fc681f5c4c58a1e1a88b30b879f107270e7ee"
+    },
+    {
+      "file": "m2m100-int8\\LICENSE.txt",
+      "bytes": 1086,
+      "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+    },
+    {
+      "file": "m2m100-int8\\model.bin",
+      "bytes": 490667752,
+      "sha256": "590e9c7e229e84de8affe7b15487660a286d3d76e44a4ca10e33099b198d9a76"
+    },
+    {
+      "file": "m2m100-int8\\MODEL_CARD.md",
+      "bytes": 4603,
+      "sha256": "1fd660f130aedc5ecf1796b47ab47d43d3c4b36541f5387b7adb3df75cb5dfdb"
+    },
+    {
+      "file": "m2m100-int8\\origin.json",
+      "bytes": 113,
+      "sha256": "d6c7519a99046e80fd8d6422c838ce01b0f084dab122330dd503491ffd307da6"
+    },
+    {
+      "file": "m2m100-int8\\sentencepiece.bpe.model",
+      "bytes": 2423393,
+      "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a"
+    },
+    {
+      "file": "m2m100-int8\\shared_vocabulary.json",
+      "bytes": 2924622,
+      "sha256": "18916ac68f9ac8fbd5250ca603dcb3861aac8672924d93a8dadc82eb3147f941"
+    }
+  ]
+}

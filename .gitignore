@@ -1,0 +1,16 @@
+.deps/
+.engine-deps/
+.convert-deps/
+.build/
+.build-tools/
+dist/
+dev-data/
+qa/
+vendor/models/
+vendor/hf-cache/
+vendor/m2m100-source/
+vendor/m2m100-int8/
+vendor/tessdata/
+__pycache__/
+*.pyc
+latest-*.json

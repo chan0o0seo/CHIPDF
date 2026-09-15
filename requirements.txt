@@ -1,0 +1,11 @@
+PySide6-Essentials==6.10.2
+Pillow==12.3.0
+ctranslate2==4.6.2
+sentencepiece==0.2.1
+numpy==2.5.3
+PyYAML==6.0.3
+pypdfium2==5.13.0
+pypdf==6.10.0
+reportlab==4.4.9
+charset-normalizer==3.5.1
+tesserocr @ https://github.com/simonflueckiger/tesserocr-windows_build/releases/download/tesserocr-v2.10.0-tesseract-5.5.2/tesserocr-2.10.0-cp312-cp312-win_amd64.whl

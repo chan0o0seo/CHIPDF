@@ -1,0 +1,4 @@
+# Developer-only model conversion. Never bundled in the desktop app.
+torch==2.7.1
+transformers==4.51.3
+sentencepiece==0.2.1
