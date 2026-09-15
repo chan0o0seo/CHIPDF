@@ -131,7 +131,8 @@ class Collection:
         if not self.auto_ocr and project_file is None:
             self.set_canvas_tool('ocr')
 
-    def activate_page(self, index, selection=(), keep_scope=False):
+    def activate_page(self, index, selection=(), keep_scope=False, fit_view=True):
+        tool = self.canvas.tool if not fit_view else 'select'
         self.canvas.cancel_tool()
         self.page_index = index
         page = self.current_page
@@ -144,8 +145,14 @@ class Collection:
         self.compare_action.setChecked(False)
         self.background_signature = None
         self.rebuild_scene(selection)
+        self.canvas.set_tool(tool)
         self.setWindowTitle(f'{self.project.name} · {index+1}/{len(self.project.pages)} — {APP_NAME}')
-        QTimer.singleShot(0, self.canvas.fit_page)
+        if fit_view:
+            context = (self.project.id, page.id)
+            def fit_current_page():
+                if self.project and (self.project.id, self.current_page.id) == context:
+                    self.canvas.fit_page()
+            QTimer.singleShot(0, fit_current_page)
 
     def queue_current_ocr(self):
         self.pending_ocr = self.current_page.id in self.pages_pending_ocr and not self.current_page.ocr_done

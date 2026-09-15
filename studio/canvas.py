@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsTextItem, 
 from . import richtext
 from .object_items import BoxInteraction, VisualItem, GroupItem
 from .vertical_editing import VerticalEditing
+from .stamp_tool import CloneStamp
 
 
 class CardScene(QGraphicsScene):
@@ -146,7 +147,7 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         self.editor.finish_operation("글자 편집")
         self.update()
 
-class Canvas(QGraphicsView):
+class Canvas(CloneStamp, QGraphicsView):
     zoom_changed = Signal(int)
     file_dropped = Signal(str)
     files_dropped = Signal(list)
@@ -166,6 +167,9 @@ class Canvas(QGraphicsView):
         self._brush_mask = QImage()
         self._brush_overlay = QImage()
         self._has_brush_selection = False
+        self._pan_position = None
+        self._pan_cursor = None
+        self.init_stamp()
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -174,6 +178,7 @@ class Canvas(QGraphicsView):
         self.setFrameShape(QGraphicsView.NoFrame)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorViewCenter)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
 
     def _tool_available(self):
@@ -194,12 +199,13 @@ class Canvas(QGraphicsView):
                        max(bounds.top(), min(bounds.bottom(), point.y())))
 
     def set_tool(self, tool):
-        if tool not in ("select", "ocr", "brush"):
+        if tool not in ("select", "ocr", "brush", "stamp"):
             raise ValueError("Unknown canvas tool: " + str(tool))
         if tool != "select" and not self._tool_available():
             return False
         if tool == self.tool:
             return True
+        self._end_pan()
         self.clear_tool_selection()
         editing = self.editor.editing_item()
         if editing:
@@ -226,6 +232,7 @@ class Canvas(QGraphicsView):
         return self._brush_mask.copy() if self._has_brush_selection else QImage()
 
     def clear_tool_selection(self):
+        self.cancel_stamp_stroke()
         self._region_start = self._region_end = None
         self._brush_last = self._brush_cursor = None
         self._brush_mask = QImage()
@@ -281,8 +288,8 @@ class Canvas(QGraphicsView):
             painter.setPen(pen)
             painter.setBrush(QColor(37, 135, 128, 35))
             painter.drawRect(QRectF(self._region_start, self._region_end).normalized())
-        elif self.tool == "brush":
-            if not self._brush_overlay.isNull():
+        elif self.tool in ("brush", "stamp"):
+            if self.tool == "brush" and not self._brush_overlay.isNull():
                 painter.drawImage(QPointF(), self._brush_overlay)
             if self._brush_cursor is not None:
                 pen = QPen(QColor("white"), 3)
@@ -295,9 +302,27 @@ class Canvas(QGraphicsView):
                 pen.setWidth(1)
                 painter.setPen(pen)
                 painter.drawEllipse(self._brush_cursor, radius, radius)
+            if self.tool == "stamp":
+                self.draw_stamp_source(painter)
         painter.restore()
 
+    def _end_pan(self):
+        if self._pan_position is not None:
+            self._pan_position = None
+            self.viewport().setCursor(self._pan_cursor)
+            self._pan_cursor = None
+            self.viewport().update()
+
     def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton or self._pan_position is not None:
+            if event.buttons() == Qt.MiddleButton and self._pan_position is None:
+                self._pan_position = event.position().toPoint()
+                self._pan_cursor = self.viewport().cursor()
+                self._brush_cursor = None
+                self.viewport().setCursor(Qt.ClosedHandCursor)
+                self.viewport().update()
+            event.accept()
+            return
         if self.tool == "select":
             super().mousePressEvent(event)
             return
@@ -311,6 +336,8 @@ class Canvas(QGraphicsView):
         if self.tool == "ocr":
             self._region_start = self._clamp_to_page(point)
             self._region_end = QPointF(self._region_start)
+        elif self.tool == "stamp":
+            self.stamp_press(point, event.modifiers())
         elif self._page_rect().contains(point):
             self._brush_last = point
             self._brush_cursor = point
@@ -318,6 +345,19 @@ class Canvas(QGraphicsView):
         self.viewport().update()
 
     def mouseMoveEvent(self, event):
+        if self._pan_position is not None:
+            if event.buttons() & Qt.MiddleButton:
+                position = event.position().toPoint()
+                delta = position - self._pan_position
+                self._pan_position = position
+                horizontal = self.horizontalScrollBar()
+                vertical = self.verticalScrollBar()
+                horizontal.setValue(horizontal.value() - delta.x())
+                vertical.setValue(vertical.value() - delta.y())
+            else:
+                self._end_pan()
+            event.accept()
+            return
         if self.tool == "select":
             super().mouseMoveEvent(event)
             return
@@ -327,6 +367,8 @@ class Canvas(QGraphicsView):
         point = self.mapToScene(event.position().toPoint())
         if self.tool == "ocr" and self._region_start is not None:
             self._region_end = self._clamp_to_page(point)
+        elif self.tool == "stamp":
+            self.stamp_move(point, event.buttons())
         elif self.tool == "brush":
             self._brush_cursor = point if self._page_rect().contains(point) else None
             if self._brush_last is not None:
@@ -335,6 +377,11 @@ class Canvas(QGraphicsView):
         self.viewport().update()
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton or self._pan_position is not None:
+            if event.button() == Qt.MiddleButton:
+                self._end_pan()
+            event.accept()
+            return
         if self.tool == "select":
             super().mouseReleaseEvent(event)
             return
@@ -351,13 +398,17 @@ class Canvas(QGraphicsView):
                 self.region_selected.emit(region)
             else:
                 self.editor.status.setText('문장 범위가 너무 작습니다 · 가로·세로 24px 이상으로 선택해 주세요')
+        elif self.tool == "stamp":
+            self.stamp_release(point)
         elif self.tool == "brush" and self._brush_last is not None:
             self._paint_brush_segment(self._brush_last, point)
             self._brush_last = None
         self.viewport().update()
 
     def mouseDoubleClickEvent(self, event):
-        if self.tool == "select":
+        if event.button() == Qt.MiddleButton or self._pan_position is not None:
+            self.mousePressEvent(event)
+        elif self.tool == "select":
             super().mouseDoubleClickEvent(event)
         else:
             self.mousePressEvent(event)
@@ -368,12 +419,20 @@ class Canvas(QGraphicsView):
         super().leaveEvent(event)
 
     def event(self, event):
+        if event.type() in (QEvent.WindowDeactivate, QEvent.Hide) and hasattr(self, "_pan_position"):
+            self._end_pan()
+            self.cancel_stamp_stroke()
         if (event.type() == QEvent.ShortcutOverride and getattr(self, "tool", "select") != "select"
                 and event.key() in (Qt.Key_Delete, Qt.Key_Backspace, Qt.Key_Left,
                                     Qt.Key_Right, Qt.Key_Up, Qt.Key_Down, Qt.Key_Escape)):
             event.accept()
             return True
         return super().event(event)
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.UngrabMouse and hasattr(self, "_pan_position"):
+            self._end_pan()
+        return super().viewportEvent(event)
 
     def fit_page(self):
         if self.editor.project:
@@ -387,7 +446,9 @@ class Canvas(QGraphicsView):
         self.zoom_changed.emit(round(scale * 100))
 
     def wheelEvent(self, event):
-        if event.modifiers() & Qt.ControlModifier:
+        if self._pan_position is not None:
+            event.accept()
+        elif event.modifiers() & Qt.ControlModifier:
             self.zoom(1.15 if event.angleDelta().y() > 0 else 1 / 1.15)
             event.accept()
         else:

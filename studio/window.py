@@ -25,6 +25,7 @@ from .layout_tools import LayoutTools, move_in_scene
 from .collection import Collection
 from .document_io import import_files
 from .presets import Presets
+from .font_favorites import FontFavorites
 from . import APP_NAME, __version__
 
 
@@ -54,7 +55,7 @@ class Change(QUndoCommand):
             self.editor.apply_snapshot(self.after, self.after_page)
 
 
-class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
+class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, FontFavorites):
     def __init__(self, data_dir: Path, auto_ocr=False):
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -93,6 +94,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.init_layout_tools()
         self.init_collection()
         self.init_presets()
+        self.init_font_favorites()
         self.undo_stack.indexChanged.connect(self.update_tools)
         self.update_tools()
 
@@ -199,7 +201,6 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.card_list.setViewMode(QListWidget.IconMode)
         self.card_list.setResizeMode(QListWidget.Adjust)
         self.card_list.setMovement(QListWidget.Static)
-        self.card_list.itemClicked.connect(lambda: self.canvas.fit_page())
         side.addWidget(self.card_list)
         sidebar_note = QLabel("카드 클릭으로 전환 · Ctrl/Shift로 여러 장 선택")
         sidebar_note.setWordWrap(True)
@@ -292,14 +293,44 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.update_tools()
 
     def apply_snapshot(self, project, page_id=None):
+        view = self.capture_canvas_view()
         self.invalidate_jobs()
         selection = [i.model.id for i in self.selected()]
         page_id = page_id or self.current_page.id
         self.project = deepcopy(project)
         index = next((i for i, p in enumerate(self.project.pages) if p.id == page_id), 0)
-        self.activate_page(index, selection, keep_scope=True)
+        same_page = view is not None and view[:2] == (self.project.id, self.project.pages[index].id)
+        self.activate_page(index, selection, keep_scope=True, fit_view=not same_page)
         self.refresh_card_list()
         self.changed()
+        self.restore_canvas_view(view)
+
+    def capture_canvas_view(self):
+        if not self.project:
+            return None
+        canvas = self.canvas
+        viewport_size = canvas.viewport().size()
+        inverse, invertible = canvas.viewportTransform().inverted()
+        if not invertible:
+            return None
+        center = inverse.map(QPointF(viewport_size.width() / 2, viewport_size.height() / 2))
+        return (self.project.id, self.current_page.id, canvas.transform(), center,
+                viewport_size, canvas.horizontalScrollBar().value(), canvas.verticalScrollBar().value())
+
+    def restore_canvas_view(self, view):
+        if view is None or not self.project or view[:2] != (self.project.id, self.current_page.id):
+            return
+        _, _, transform, center, viewport_size, horizontal, vertical = view
+        canvas = self.canvas
+        if canvas.transform() != transform:
+            canvas.setTransform(transform)
+            canvas.zoom_changed.emit(round(transform.m11() * 100))
+        if canvas.viewport().size() == viewport_size:
+            # Reuse the exact scroll offsets to avoid rounding drift after repeated edits.
+            canvas.horizontalScrollBar().setValue(horizontal)
+            canvas.verticalScrollBar().setValue(vertical)
+        else:
+            canvas.centerOn(center)
 
     def changed(self):
         if self.loading or not self.project:
@@ -312,6 +343,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.update_undo()
 
     def rebuild_scene(self, selection=()):
+        view = self.capture_canvas_view()
+        self.canvas.cancel_stamp_stroke()
         self.loading = True
         self.items_by_id = {}
         self.scene.clear()
@@ -335,6 +368,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.loading = False
         self.refresh_background()
         self.update_tools()
+        self.restore_canvas_view(view)
 
     def update_undo(self):
         if not hasattr(self, "undo_action"):
@@ -375,6 +409,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
             self.italic_action.setChecked(style.italic)
             self.underline_action.setChecked(style.underline)
             self.fill_action.setChecked(item.model.fill == "#ffffff")
+            self.update_font_favorite()
         self.update_undo()
         self.update_workflow_tools()
         self.update_editing_tools()
@@ -441,6 +476,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.finish_operation("이동")
 
     def undo(self):
+        self.canvas.cancel_stamp_stroke()
         item = self.editing_item()
         if item:
             item.document().undo()
@@ -449,6 +485,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.update_undo()
 
     def redo(self):
+        self.canvas.cancel_stamp_stroke()
         item = self.editing_item()
         if item:
             item.document().redo()
@@ -522,6 +559,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
         self.finish_operation("상자 배경")
 
     def compare(self, checked):
+        view = self.capture_canvas_view()
         self.finish_edit()
         self.canvas.cancel_tool()
         self.comparing = checked
@@ -530,6 +568,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets):
             item.setVisible(not checked)
         self.refresh_background()
         self.update_tools()
+
+        self.restore_canvas_view(view)
 
     def choose_open(self):
         self.choose_sources()

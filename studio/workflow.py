@@ -100,13 +100,12 @@ class Workflow(RegionTools):
         return selected[0].model if len(selected) == 1 and isinstance(selected[0].model, TextBox) and (selected[0].model.source_text or selected[0].model.source_rect) else None
 
     def show_source(self):
-        opening = not self.source_dock.isVisible()
+        view = self.capture_canvas_view()
         self.source_dock.show()
         self.update_source_panel()
 
         self.update_region_tools()
-        if opening:
-            QTimer.singleShot(0, self.canvas.fit_page)
+        self.restore_canvas_view(view)
 
     def update_workflow_tools(self):
         if not hasattr(self, "review_button"):

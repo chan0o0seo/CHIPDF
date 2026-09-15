@@ -3,7 +3,7 @@ from copy import deepcopy
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QActionGroup
-from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox, QToolBar
+from PySide6.QtWidgets import QComboBox, QFileDialog, QLabel, QSpinBox, QToolBar
 
 from .document_io import png_data
 from .model import Paragraph, Project, Run, Style, TextBox
@@ -18,7 +18,9 @@ class RegionTools:
         self.select_tool_action = self.action('선택', lambda: self.set_canvas_tool('select'), checkable=True)
         self.region_action = self.action('문장 선택', lambda: self.set_canvas_tool('ocr'), checkable=True)
         self.brush_action = self.action('브러시', lambda: self.set_canvas_tool('brush'), checkable=True)
-        self.tool_actions = {'select': self.select_tool_action, 'ocr': self.region_action, 'brush': self.brush_action}
+        self.stamp_action = self.action('도장', lambda: self.set_canvas_tool('stamp'), checkable=True)
+        self.tool_actions = {'select': self.select_tool_action, 'ocr': self.region_action,
+                             'brush': self.brush_action, 'stamp': self.stamp_action}
         self.tool_action_group = QActionGroup(self)
         self.tool_action_group.setExclusive(True)
         for action in self.tool_actions.values():
@@ -26,6 +28,7 @@ class RegionTools:
             self.main_toolbar.insertAction(self.translate_action, action)
         self.region_action.setToolTip('사각형으로 일본어 문장을 선택해 원문을 읽고 빈 입력 상자를 만듭니다.')
         self.brush_action.setToolTip('원본에서 지울 부분을 칠한 뒤 지우기를 누릅니다.')
+        self.stamp_action.setToolTip('Alt+클릭으로 배경의 원본 지점을 정하고 드래그해 복제합니다. Ctrl+Z로 한 획을 취소합니다.')
         self.select_tool_action.setChecked(True)
         self.region_bar = QToolBar('선택 범위 도구')
         self.region_bar.setMovable(False)
@@ -43,6 +46,7 @@ class RegionTools:
         self.apply_erase_action = self.action('지우기', self.apply_brush_erase)
         self.cancel_region_action = self.action('선택 취소', self.cancel_region_selection)
         self.region_bar.addActions([self.apply_erase_action, self.cancel_region_action])
+        self.stamp_hint_widget = self.region_bar.addWidget(QLabel('Alt+클릭: 원본 지정 · 드래그: 복제 · Ctrl+Z: 한 획 취소'))
         self.canvas.region_selected.connect(self.start_region_ocr)
         self.canvas.brush_selection_changed.connect(lambda _: self.update_region_tools())
         self.canvas.tool_changed.connect(self.canvas_tool_changed)
@@ -54,6 +58,7 @@ class RegionTools:
         self.update_region_tools()
         messages = {'ocr': '일본어 문장을 사각형으로 드래그하세요 · Esc로 취소',
                     'brush': '지울 부분을 칠한 뒤 지우기를 누르세요 · Esc로 취소',
+                    'stamp': 'Alt+클릭으로 원본 지점을 지정한 뒤 드래그하세요 · 휠 버튼 드래그로 화면 이동',
                     'select': '상자를 선택하거나 더블클릭해서 글자를 입력하세요'}
         if self.project:
             self.status.setText(messages[self.canvas.tool])
@@ -76,11 +81,14 @@ class RegionTools:
         self.region_bar.setVisible(ready and tool != 'select')
         self.orientation_widget.setVisible(tool == 'ocr')
         self.orientation_box.setEnabled(idle)
-        self.brush_size_widget.setVisible(tool == 'brush')
+        self.brush_size_widget.setVisible(tool in ('brush', 'stamp'))
+        self.brush_size_box.setPrefix('도장 크기 ' if tool == 'stamp' else '브러시 ')
         self.brush_size_box.setEnabled(idle)
+        self.stamp_hint_widget.setVisible(tool == 'stamp')
         self.apply_erase_action.setVisible(tool == 'brush')
         self.apply_erase_action.setEnabled(ready and idle and self.canvas._has_brush_selection)
         self.cancel_region_action.setEnabled(ready)
+        self.cancel_region_action.setText('도장 끝내기' if tool == 'stamp' else '선택 취소')
 
     def cancel_region_selection(self):
         if self.manual_task and self.job:
