@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QLabel, QSpinBox, QToolBar
 from .document_io import png_data
 from .model import Paragraph, Project, Run, Style, TextBox
 from .recognition import make_erase_patch, recognize_region
+from .native_source import prefer_native_source
 
 
 class RegionTools:
@@ -56,6 +57,8 @@ class RegionTools:
         self.finish_edit()
         self.canvas.set_tool(tool)
         self.update_region_tools()
+        if tool != 'select' and hasattr(self, 'ribbon_tabs'):
+            self.ribbon_tabs.setCurrentIndex(2)
         messages = {'ocr': '일본어 문장을 사각형으로 드래그하세요 · Esc로 취소',
                     'brush': '지울 부분을 칠한 뒤 지우기를 누르세요 · Esc로 취소',
                     'stamp': 'Alt+클릭으로 원본 지점을 지정한 뒤 드래그하세요 · 휠 버튼 드래그로 화면 이동',
@@ -78,7 +81,7 @@ class RegionTools:
         for name, action in self.tool_actions.items():
             action.setEnabled(ready and idle)
             action.setChecked(name == tool)
-        self.region_bar.setVisible(ready and tool != 'select')
+        self.region_bar.setVisible(ready and tool != 'select' and not hasattr(self, 'ribbon_tabs'))
         self.orientation_widget.setVisible(tool == 'ocr')
         self.orientation_box.setEnabled(idle)
         self.brush_size_widget.setVisible(tool in ('brush', 'stamp'))
@@ -89,6 +92,7 @@ class RegionTools:
         self.apply_erase_action.setEnabled(ready and idle and self.canvas._has_brush_selection)
         self.cancel_region_action.setEnabled(ready)
         self.cancel_region_action.setText('도장 끝내기' if tool == 'stamp' else '선택 취소')
+        self.update_ribbon_region()
 
     def cancel_region_selection(self):
         if self.manual_task and self.job:
@@ -140,8 +144,12 @@ class RegionTools:
         bounds = [rect.x(), rect.y(), rect.width(), rect.height()]
         vertical = self.orientation_box.currentIndex() == 1
         self.manual_task = 'ocr'
-        self.launch_job(lambda cancelled, progress: recognize_region(original, bounds, cancelled, progress, vertical, **({'clean_background': clean} if clean else {})),
-                        self.accept_manual_region)
+        native_chars = deepcopy(self.current_page.native_chars)
+        def read(cancelled, progress):
+            region = recognize_region(original, bounds, cancelled, progress, vertical,
+                                      **({'clean_background': clean} if clean else {}))
+            return prefer_native_source(region, native_chars)
+        self.launch_job(read, self.accept_manual_region)
 
     def accept_manual_region(self, region):
         self.manual_task = None
@@ -154,6 +162,7 @@ class RegionTools:
                       z=max((o.z for o in self.current_page.objects), default=-1)+1,
                       paragraphs=[Paragraph([Run('', Style(size=max(9, min(28, region.line_height*.68))))])],
                       source_text=region.text, source_rect=list(region.rect),
+                      source_method=region.source_method,
                       confidence=max(0, min(100, region.confidence)), erase_when_empty=True,
                       erase_rect=region.erase_rect, erase_patch=region.patch, erase_mask=region.mask)
         self.begin_operation()

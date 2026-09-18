@@ -290,7 +290,7 @@ class ManualRegionTests(unittest.TestCase):
             reopened, assets, project_file = import_files([path])
             self.assertEqual(project_file, path.resolve())
             self.assertEqual(reopened, project)
-            self.assertEqual(reopened.version, 8)
+            self.assertEqual(reopened.version, 9)
             self.assertEqual(assets[page.asset], original)
             with zipfile.ZipFile(path) as archive:
                 self.assertEqual(archive.read(page.asset), original)
@@ -308,7 +308,7 @@ class ManualRegionTests(unittest.TestCase):
         data["pages"][0].pop("background_patches")
         data["pages"][0]["objects"][0].pop("erase_when_empty")
         migrated = Project.from_dict(data)
-        self.assertEqual(migrated.version, 8)
+        self.assertEqual(migrated.version, 9)
         self.assertEqual(migrated.pages[0].background_patches, [])
         self.assertFalse(migrated.pages[0].objects[0].erase_when_empty)
         result = decoded(restored_background(png(source), migrated.pages[0].objects))

@@ -18,6 +18,7 @@ def pixel_key(data):
 def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda value: None):
     imported, incoming, _ = import_files(paths, cancelled, progress)
     candidates, ambiguous = {}, set()
+    native_layers = {}
     for page in imported.pages:
         check_cancel(cancelled)
         if not page.clean_asset:
@@ -27,6 +28,10 @@ def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda v
         if key in candidates and pixel_key(candidates[key]) != pixel_key(clean):
             ambiguous.add(key)
         candidates[key] = clean
+        if key in native_layers and native_layers[key] != page.native_chars:
+            native_layers[key] = []
+        else:
+            native_layers[key] = page.native_chars
     trial, merged = deepcopy(project), dict(assets)
     matched = changed = 0
     for page in trial.pages:
@@ -38,6 +43,9 @@ def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda v
         clean = candidates[key]
         page.clean_asset = f'assets/{page.id}_background.png'
         merged[page.clean_asset] = clean
+        characters = native_layers.get(key, [])
+        if characters and sum(len(p.native_chars) for p in trial.pages if p.id != page.id) + len(characters) <= 200000:
+            page.native_chars = deepcopy(characters)
         for obj in page.objects:
             if not isinstance(obj, TextBox) or not obj.source_rect:
                 continue

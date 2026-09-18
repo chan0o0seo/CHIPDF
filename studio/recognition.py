@@ -30,6 +30,7 @@ class Region:
     patch: str = ""
     mask: str = ""
     erase_rect: list[float] | None = None
+    source_method: str = "ocr"
 
 
 def encode_png(image):

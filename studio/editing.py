@@ -86,7 +86,7 @@ class Editing:
         self.menu_button("서식", more, self.format_bar)
         self.object_bar = QToolBar("대상 서식")
         self.object_bar.setMovable(False)
-        self.addToolBar(self.object_bar)
+        self.context_stack.addWidget(self.object_bar)
         self.shape_fill = self.action("채우기", lambda: self.color_object("fill"))
         self.shape_clear = self.action("채우기 없음", lambda: self.set_property("fill", "transparent", "채우기 없음"))
         self.shape_stroke = self.action("테두리", lambda: self.color_object("stroke"))
@@ -132,7 +132,10 @@ class Editing:
         self.insert_button.setEnabled(editable)
         self.image_action.setEnabled(editable)
         self.insert_menu.setEnabled(editable)
-        self.object_bar.setVisible(editable and bool(selected) and (not all_text or not mutable))
+        panel = self.context_empty
+        if editable and selected:
+            panel = self.format_bar if all_text and mutable else self.object_bar
+        self.context_stack.setCurrentWidget(panel)
         for action in (self.shape_fill, self.shape_clear, self.shape_stroke, self.stroke_widget):
             action.setVisible(all_shape)
             action.setEnabled(mutable)
@@ -482,15 +485,23 @@ class Editing:
                 if len(raw) > 60_000_000:
                     raise ValueError("복사한 대상이 너무 큽니다.")
                 data = json.loads(raw)
-                trial = Project().to_dict()
-                trial["pages"][0].update(width=self.image.width(), height=self.image.height(), objects=data["objects"])
-                copied = Project.from_dict(trial).pages[0]
+                trial = self.project.to_dict()
+                page_ids = {p['id'] for p in trial['pages']}
+                for page in trial['pages']:
+                    page['objects'] = []
+                for obj in data['objects']:
+                    if obj.get('kind', 'text') == 'text' and obj.get('link_mode') == 'page' and obj.get('link_page_id') not in page_ids:
+                        obj['link_mode'], obj['link_page_id'] = 'none', ''
+                trial['pages'][self.page_index]['objects'] = data['objects']
+                copied = Project.from_dict(trial).pages[self.page_index]
                 same = data.get("background") == hashlib.sha256(self.original).hexdigest()
                 for obj in copied.objects:
                     if isinstance(obj, TextBox) and not same:
                         obj.source_text = obj.candidate_text = obj.candidate_source = obj.erase_patch = obj.erase_mask = ""
                         obj.source_rect = obj.erase_rect = None
                         obj.source_confirmed = obj.reviewed = False
+                        obj.source_method = obj.candidate_engine = ""
+                        obj.speaker = obj.translation_context = ""
                         obj.erase_when_empty = False
                 validate_images(copied)
                 validate_patches(copied)

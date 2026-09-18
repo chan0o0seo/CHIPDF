@@ -8,12 +8,14 @@ from uuid import uuid4
 from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
-                              QFileDialog, QFormLayout, QLabel, QListWidgetItem, QProgressDialog, QVBoxLayout)
+                              QFileDialog, QFormLayout, QFrame, QLabel, QListView, QListWidgetItem,
+                              QProgressDialog, QVBoxLayout)
 
 from .document_io import Cancelled, export_collection, folder_images, import_files, render_page
 from .jobs import Job
 from .model import Project
 from .storage import atomic_write, validate_asset_sizes
+from .ui.page_list import PAGE_NAME_ROLE, PAGE_NUMBER_ROLE, PageThumbnailDelegate
 from . import APP_NAME
 
 
@@ -31,6 +33,18 @@ class Collection:
         self.thumbnail_timer = QTimer(self)
         self.thumbnail_timer.setInterval(35)
         self.thumbnail_timer.timeout.connect(self.next_thumbnail)
+        self.card_list.setObjectName('pageList')
+        self.card_list.setViewMode(QListView.ListMode)
+        self.card_list.setFlow(QListView.TopToBottom)
+        self.card_list.setWrapping(False)
+        self.card_list.setResizeMode(QListView.Adjust)
+        self.card_list.setMovement(QListView.Static)
+        self.card_list.setSpacing(2)
+        self.card_list.setUniformItemSizes(True)
+        self.card_list.setMouseTracking(True)
+        self.card_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.card_list.setItemDelegate(PageThumbnailDelegate(self.card_list))
+        self.card_list.setAccessibleName('문서 페이지 목록')
         self.card_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.card_list.currentRowChanged.connect(self.switch_page)
         self.folder_action = self.action('이미지 폴더 열기…', self.choose_folder)
@@ -88,7 +102,13 @@ class Collection:
                 raise ValueError('추가할 이미지 또는 PDF를 선택해 주세요.')
             trial = deepcopy(self.project)
             first = len(trial.pages)
-            trial.pages.extend(project.pages)
+            incoming_pages = deepcopy(project.pages)
+            retained_chars = sum(len(page.native_chars) for page in trial.pages)
+            for page in incoming_pages:
+                if retained_chars + len(page.native_chars) > 200000:
+                    page.native_chars = []
+                retained_chars += len(page.native_chars)
+            trial.pages.extend(incoming_pages)
             Project.from_dict(trial.to_dict())
             used = {key for p in trial.pages for key in (p.asset, p.clean_asset) if key}
             merged = {**self.assets, **assets}
@@ -178,11 +198,13 @@ class Collection:
         self.card_list.blockSignals(True)
         self.card_list.clear()
         for index, page in enumerate(self.project.pages):
-            short_name = page.name if len(page.name) <= 28 else page.name[:25]+'…'
-            entry = QListWidgetItem(f'{index+1}. {short_name}')
+            entry = QListWidgetItem(f'{index+1}. {page.name}')
+            entry.setData(PAGE_NUMBER_ROLE, index+1)
+            entry.setData(PAGE_NAME_ROLE, page.name)
+            entry.setData(Qt.AccessibleDescriptionRole, f'{index+1}페이지 · {page.name}')
             entry.setTextAlignment(Qt.AlignHCenter)
-            entry.setToolTip(page.name)
-            entry.setSizeHint(QSize(166, 175))
+            entry.setToolTip(f'{index+1}페이지 · {page.name}')
+            entry.setSizeHint(QSize(164, 178))
             self.card_list.addItem(entry)
         self.card_list.setCurrentRow(self.page_index)
         self.card_list.blockSignals(False)
@@ -224,24 +246,70 @@ class Collection:
         selected = sorted(self.card_list.row(item) for item in self.card_list.selectedItems())
         dialog = QDialog(self)
         dialog.setWindowTitle('완성본 저장')
+        dialog.setMinimumWidth(430)
         layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(16)
+        heading = QLabel('편집한 문서를 저장하세요')
+        heading.setObjectName('dialogTitle')
+        layout.addWidget(heading)
+        description = QLabel(self.project.name)
+        description.setObjectName('secondaryText')
+        description.setWordWrap(True)
+        layout.addWidget(description)
         form = QFormLayout()
+        form.setHorizontalSpacing(20)
+        form.setVerticalSpacing(12)
         scope = QComboBox()
-        scope.addItem(f'전체 카드 ({len(self.project.pages)}장)', list(range(len(self.project.pages))))
-        scope.addItem('현재 카드', [self.page_index])
+        scope.setAccessibleName('저장할 페이지 범위')
+        scope.addItem(f'전체 페이지 ({len(self.project.pages)}장)', list(range(len(self.project.pages))))
+        scope.addItem(f'현재 페이지 ({self.page_index+1}페이지)', [self.page_index])
         if selected:
-            scope.addItem(f'선택한 카드 ({len(selected)}장)', selected)
+            scope.addItem(f'선택한 페이지 ({len(selected)}장)', selected)
         kind = QComboBox()
+        kind.setAccessibleName('완성본 파일 형식')
         kind.addItem('PNG 이미지', 'png')
         kind.addItem('PDF 문서', 'pdf')
-        form.addRow('범위', scope)
-        form.addRow('형식', kind)
+        form.addRow('저장 범위', scope)
+        form.addRow('파일 형식', kind)
         layout.addLayout(form)
-        note = QLabel('PDF는 현재 카드 모습을 이미지로 담습니다.\n계속 편집할 작업은 .twproj로 보관하세요.')
+
+        summary_card = QFrame()
+        summary_card.setObjectName('infoCard')
+        summary_layout = QVBoxLayout(summary_card)
+        summary_layout.setContentsMargins(14, 12, 14, 12)
+        summary_layout.setSpacing(8)
+        count_label = QLabel()
+        count_label.setObjectName('exportSummary')
+        summary_layout.addWidget(count_label)
+        note = QLabel()
+        note.setObjectName('secondaryText')
         note.setWordWrap(True)
-        layout.addWidget(note)
+        summary_layout.addWidget(note)
+        layout.addWidget(summary_card)
+        project_note = QLabel('계속 편집할 작업은 파일 → 작업 저장에서 .twproj로 보관하세요.')
+        project_note.setObjectName('secondaryText')
+        project_note.setWordWrap(True)
+        layout.addWidget(project_note)
+
+        def update_summary():
+            count = len(scope.currentData())
+            if kind.currentData() == 'pdf':
+                count_label.setText(f'{count}페이지 · PDF 파일 1개')
+                note.setText('현재 모습과 내부 페이지 링크를 함께 저장합니다.\n'
+                             '저장 범위에 포함되지 않은 페이지로 가는 링크는 제외됩니다.')
+            else:
+                count_label.setText(f'{count}페이지 · PNG 이미지 {count}개')
+                note.setText('페이지마다 이미지로 저장합니다. PNG에는 페이지 링크가 포함되지 않습니다.'
+                             + ('\n여러 이미지는 새 폴더에 함께 저장합니다.' if count > 1 else ''))
+        scope.currentIndexChanged.connect(update_summary)
+        kind.currentIndexChanged.connect(update_summary)
+        update_summary()
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.button(QDialogButtonBox.Ok).setText('저장 위치 선택')
+        buttons.button(QDialogButtonBox.Ok).setObjectName('primaryButton')
+        buttons.button(QDialogButtonBox.Ok).setDefault(True)
         buttons.button(QDialogButtonBox.Cancel).setText('취소')
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)

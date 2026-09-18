@@ -4,7 +4,7 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainterPath, QPen, QTransform
-from PySide6.QtWidgets import QGraphicsItem
+from PySide6.QtWidgets import QApplication, QGraphicsItem
 
 from .model import ImageBox, ShapeBox, GroupBox
 
@@ -44,7 +44,7 @@ class BoxInteraction:
     def paint_controls(self, painter, overflow=False):
         if not self.scene() or not self.scene().show_controls or not self.isSelected():
             return
-        pen = QPen(QColor("#9b6c35" if overflow else "#7f8885" if self.model.locked else "#3a7f79"), 1.5)
+        pen = QPen(QColor("#9B6C35" if overflow else "#8A95A3" if self.model.locked else "#0F6CBD"), 1.5)
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -63,7 +63,9 @@ class BoxInteraction:
         if self.editing or not self.editor.can_interact(self.model) or event.button() != Qt.LeftButton:
             super().mousePressEvent(event)
             return
-        self.editor.begin_operation()
+        self._drag_press_position = event.screenPos()
+        self._drag_started = False
+        self.gesture = None
         self.start_size = (self.model.width, self.model.height)
         self.start_scale = self.model.scale
         self.start_transform = QTransform(self.sceneTransform())
@@ -85,6 +87,18 @@ class BoxInteraction:
         if not self.editor.can_interact(self.model):
             event.accept()
             return
+        press_position = getattr(self, "_drag_press_position", None)
+        if press_position is None or not event.buttons() & Qt.LeftButton:
+            event.accept()
+            return
+        if not self._drag_started:
+            # Measure the pointer in screen pixels so selection jitter cannot
+            # move or snap a box, even when the page is zoomed out.
+            if (event.screenPos() - press_position).manhattanLength() < QApplication.startDragDistance():
+                event.accept()
+                return
+            self.editor.begin_operation()
+            self._drag_started = True
         if self.gesture == "resize":
             if isinstance(self.model, GroupBox):
                 local = self.start_transform.inverted()[0].map(event.scenePos())
@@ -127,11 +141,16 @@ class BoxInteraction:
             self.editor.snap_drag(event.modifiers())
 
     def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            super().mouseReleaseEvent(event)
+            return
         gesture, self.gesture = self.gesture, None
+        dragged = getattr(self, "_drag_started", False)
+        self._drag_press_position = None
+        self._drag_started = False
         self.scene().snap_guides = []
         super().mouseReleaseEvent(event)
-        if not self.editing:
-            self.editor.sync_positions()
+        if dragged and not self.editing:
             self.editor.finish_operation("크기 변경" if gesture == "resize" else "회전" if gesture else "이동")
 
     def hoverMoveEvent(self, event):

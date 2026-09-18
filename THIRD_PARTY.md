@@ -1,6 +1,6 @@
-# Runtime components — prototype 0.5
+# Runtime components — 0.11.0
 
-Python, Qt, OCR, PDF and translation libraries are bundled in the portable directory. Installed package license/notice files and additional model/native notices are copied into `licenses`. No user documents or system fonts are included. The editor uses the system font. ReportLab includes its own support assets; associated font notices are also copied into `licenses/reportlab-support`.
+Python, Qt, OCR, PDF and small translation runtime libraries are bundled in the portable directory. The default lightweight edition omits M2M100 weights. Offline translation is an optional data pack; existing compatible model folders can also be connected. Installed package license/notice files and additional model/native notices are copied into `licenses`. No user documents or system fonts are included. The editor uses the system font. ReportLab includes its own support assets; associated font notices are also copied into `licenses/reportlab-support`.
 
 - Python: https://www.python.org/ — PSF license and bundled component notices.
 - PySide6 Essentials / Shiboken6 6.10.2: https://www.qt.io/qt-for-python — see the bundled license texts and https://code.qt.io/cgit/pyside/pyside-setup.git/ for source.
@@ -25,10 +25,14 @@ Python, Qt, OCR, PDF and translation libraries are bundled in the portable direc
 | charset-normalizer 3.5.1 | https://github.com/jawah/charset_normalizer — included package license |
 | Inno Setup 7.1.0 (installer only) | https://jrsoftware.org/ — Copyright (C) 1997–2026 Jordan Russell; portions Copyright (C) 2000–2026 Martijn Laan. Installer license is included at `licenses/Inno-Setup-LICENSE.txt`. The compiler is a development tool and is not installed with Translation Studio. |
 | Japanese OCR models | https://github.com/tesseract-ocr/tessdata_fast — Apache 2.0, jpn and jpn_vert |
-| M2M100 418M model | https://huggingface.co/facebook/m2m100_418M — MIT; fixed revision in bundled origin.json, locally converted to CTranslate2 int8 |
+| M2M100 1.2B model | https://huggingface.co/facebook/m2m100_1.2B — MIT; official revision `7b36184180524c1a1bbfa37f120a608046250b98` recorded in bundled origin.json, locally converted to CTranslate2 int8 |
 
 The Windows OCR wheel also supplies zlib, zstd, libpng, libjpeg, libtiff, giflib, OpenJPEG, WebP and xz shared libraries. Their upstream sources are linked from the Windows build project. Qt and Pillow also supply image codec notices in their package license folders.
 
-PyTorch and Transformers are used only to convert public model weights and are not bundled. Older Argos experiments are not bundled.
+PyTorch and Transformers are used only to convert public model weights and are not bundled. Older Argos experiments and M2M100 418M weights are not bundled.
 
-Public asset origins, sizes and SHA-256 values are included in `licenses/models-and-native/asset-origins.json`. Model card and MIT license accompany the converted model in `_internal/vendor/m2m100-int8`. This build performs inference on the CPU. It does not upload documents or require an online account.
+Public asset preparation records are included in `licenses/models-and-native/asset-origins.json`; those development records may describe optional assets not shipped in the lightweight edition. The optional pack contains the model card, MIT license, origin.json and file SHA-256 metadata. The small CTranslate2 and SentencePiece runtimes remain bundled so installing a data-only offline pack does not require downloading executable code. The optional M2M100 model performs inference on the CPU.
+
+The default translation provider is the Translator API in the user's separately installed Google Chrome. Chrome and its language packs are not redistributed with this application. The app sends text only to its authenticated loopback helper page; Chrome's on-device Translator API handles inference. Chrome installation and language-pack downloads are managed separately by Chrome.
+
+The larger model requires more disk space and memory than the previous 418M model and may translate more slowly. Version 0.9.1 was prepared without tests, benchmarks or sample translations at the user's request; no measured quality or speed improvement is claimed.

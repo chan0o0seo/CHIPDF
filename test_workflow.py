@@ -190,7 +190,7 @@ class WorkflowTests(unittest.TestCase):
             for key in ("confidence", "source_confirmed", "target_origin", "reviewed", "candidate_text", "candidate_source", "erase_enabled", "erase_patch", "erase_mask"):
                 obj.pop(key)
         migrated = Project.from_dict(data)
-        self.assertEqual(migrated.version, 8)
+        self.assertEqual(migrated.version, 9)
         self.assertEqual(migrated.pages[0].objects[0].text, "이전 버전의 번역")
         self.assertEqual(migrated.pages[0].objects[0].source_text, "")
 
@@ -223,10 +223,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(Image.open(io.BytesIO(restored_background(stream.getvalue(), [obj]))).tobytes(), source.tobytes())
 
     def test_long_translation_is_rejected_without_silent_truncation(self):
+        from studio.translation_config import MAX_SOURCE_TOKENS
         translator = LocalTranslator.__new__(LocalTranslator)
         class Tokenizer:
             def encode(self, text, out_type):
-                return ["token"] * 441
+                return ["token"] * (MAX_SOURCE_TOKENS + 1)
         translator.tokenizer = Tokenizer()
         with self.assertRaises(ValueError):
             translator.translate("長い原文", threading.Event())

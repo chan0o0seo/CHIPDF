@@ -10,6 +10,8 @@ vendor/models/
 vendor/hf-cache/
 vendor/m2m100-source/
 vendor/m2m100-int8/
+vendor/m2m100-1.2b-source/
+vendor/m2m100-1.2b-int8/
 vendor/tessdata/
 __pycache__/
 *.pyc
@@ -21,3 +23,6 @@ latest-*.json
 /ENGINE_REVIEW.ko.md
 /WINDOWS_COMPATIBILITY.ko.md
 /design/
+/TRANSLATION_IMPROVEMENT_PLAN.ko.md
+/TRANSLATION_ABC_IMPLEMENTATION.ko.md
+/LIGHTWEIGHT_RELEASE.ko.md

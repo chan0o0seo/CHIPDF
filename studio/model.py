@@ -89,14 +89,22 @@ class TextBox(ObjectBox):
     erase_rect: list[float] | None = None
     confidence: float = 100
     source_confirmed: bool = False
+    source_method: str = ""
     target_origin: str = "manual"
     reviewed: bool = False
     candidate_text: str = ""
     candidate_source: str = ""
+    translation_engine: str = ""
+    candidate_engine: str = ""
+    speaker: str = ""
+    translation_context: str = ""
+    join_source_lines: bool = True
     erase_enabled: bool = True
     erase_when_empty: bool = False
     erase_patch: str = ""
     erase_mask: str = ""
+    link_mode: str = "auto"
+    link_page_id: str = ""
 
     @property
     def text(self) -> str:
@@ -127,22 +135,31 @@ class Page:
     background_patches: list[BackgroundPatch] = field(default_factory=list)
     # Optional rendering of the PDF with its native text objects removed.
     clean_asset: str = ""
+    # Pixel rectangles [x, y, width, height] and stable destination page IDs.
+    pdf_links: list[dict] = field(default_factory=list)
+    native_chars: list[list] = field(default_factory=list)
 
 
 @dataclass
 class Project:
     id: str = field(default_factory=uid)
     name: str = "새 작업"
-    version: int = 8
+    version: int = 10
     pages: list[Page] = field(default_factory=lambda: [Page()])
+    translation_engine: str = "chrome"
+    glossary: list[dict] = field(default_factory=list)
+    translation_memory: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> Project:
-        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8):
+        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
             raise ValueError("지원하지 않는 프로젝트 버전입니다.")
+        from .translation_quality import validate_translation_data
+        validate_translation_data(data.get("translation_engine", "chrome"),
+                                  data.get("glossary", []), data.get("translation_memory", []))
         if not re.fullmatch(r"[a-f0-9]{32}", data.get("id", "")):
             raise ValueError("프로젝트 식별자가 올바르지 않습니다.")
         if not 1 <= len(data.get("pages", [])) <= 200:
@@ -150,6 +167,7 @@ class Project:
         if data['version'] < 5 and len(data['pages']) != 1:
             raise ValueError("이전 버전의 작업 구성과 맞지 않습니다.")
         pages = []
+        native_count = 0
         ids = set()
         page_ids, assets = set(), set()
         for p in data["pages"]:
@@ -182,6 +200,18 @@ class Project:
                 assets.add(clean_asset)
             if len(p["objects"]) > 2000:
                 raise ValueError("텍스트 상자가 너무 많습니다.")
+            native_chars = p.get("native_chars", [])
+            if not isinstance(native_chars, list) or len(native_chars) > 30000:
+                raise ValueError("PDF 원문 정보가 너무 많거나 올바르지 않습니다.")
+            native_count += len(native_chars)
+            if native_count > 200000:
+                raise ValueError("작품의 PDF 원문 정보가 너무 많습니다.")
+            for entry in native_chars:
+                if (not isinstance(entry, list) or len(entry) != 5 or
+                        not isinstance(entry[0], str) or len(entry[0]) != 1 or
+                        any(type(v) is not int or v < 0 for v in entry[1:]) or
+                        min(entry[3:]) < 1 or entry[1]+entry[3] > p["width"] or entry[2]+entry[4] > p["height"]):
+                    raise ValueError("PDF 원문 좌표가 올바르지 않습니다.")
             records = p.get("background_patches", [])
             if not isinstance(records, list) or len(records) > 2000:
                 raise ValueError("배경 지우기 기록이 올바르지 않거나 너무 많습니다.")
@@ -273,6 +303,21 @@ class Project:
                     objects.append(ImageBox(**obj))
                     continue
                 paragraphs = []
+                if obj.get("source_method", "") not in ("", "ocr", "pdf", "manual"):
+                    raise ValueError("원문 출처가 올바르지 않습니다.")
+                for key in ("translation_engine", "candidate_engine"):
+                    if obj.get(key, "") not in ("", "chrome", "local", "memory", "glossary"):
+                        raise ValueError("번역 엔진 기록이 올바르지 않습니다.")
+                for key, limit in (("speaker", 200), ("translation_context", 2000)):
+                    if not isinstance(obj.get(key, ""), str) or len(obj.get(key, "")) > limit:
+                        raise ValueError("화자 또는 문맥 정보가 올바르지 않습니다.")
+                if not isinstance(obj.get("join_source_lines", True), bool):
+                    raise ValueError("문단 입력 설정이 올바르지 않습니다.")
+                if obj.get('link_mode', 'auto') not in ('auto', 'none', 'page'):
+                    raise ValueError('페이지 링크 설정이 올바르지 않습니다.')
+                target = obj.get('link_page_id', '')
+                if not isinstance(target, str) or (target and not re.fullmatch(r'[a-f0-9]{32}', target)):
+                    raise ValueError('페이지 링크 대상이 올바르지 않습니다.')
                 for flag in ("erase_enabled", "erase_when_empty"):
                     if not isinstance(obj.get(flag, flag == "erase_enabled"), bool):
                         raise ValueError("원문 제거 설정이 올바르지 않습니다.")
@@ -319,4 +364,22 @@ class Project:
                         raise ValueError("연결된 그룹을 찾지 못했습니다.")
                     current = parent
             pages.append(Page(**{**p, "objects": objects, "background_patches": background_patches}))
-        return cls(id=data["id"], name=data["name"], version=8, pages=pages)
+        for page in pages:
+            if not isinstance(page.pdf_links, list) or len(page.pdf_links) > 10000:
+                raise ValueError('PDF 링크 정보가 올바르지 않거나 너무 많습니다.')
+            for link in page.pdf_links:
+                if not isinstance(link, dict) or set(link) != {'rect', 'page_id'} or link['page_id'] not in page_ids:
+                    raise ValueError('PDF 링크 대상 페이지가 없습니다.')
+                rect = link['rect']
+                if (not isinstance(rect, list) or len(rect) != 4 or
+                        any(type(v) not in (int, float) or not math.isfinite(v) for v in rect) or
+                        min(rect[:2]) < 0 or min(rect[2:]) <= 0 or
+                        rect[0]+rect[2] > page.width+.01 or rect[1]+rect[3] > page.height+.01):
+                    raise ValueError('PDF 링크 영역이 올바르지 않습니다.')
+            for obj in page.objects:
+                if isinstance(obj, TextBox) and obj.link_mode == 'page' and obj.link_page_id not in page_ids:
+                    raise ValueError('텍스트 링크 대상 페이지가 없습니다.')
+        return cls(id=data["id"], name=data["name"], version=10, pages=pages,
+                   translation_engine=data.get("translation_engine", "chrome"),
+                   glossary=[dict(row, forbidden=list(row["forbidden"])) for row in data.get("glossary", [])],
+                   translation_memory=[dict(row) for row in data.get("translation_memory", [])])

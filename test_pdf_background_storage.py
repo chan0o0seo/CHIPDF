@@ -74,7 +74,7 @@ class PdfBackgroundStorageTests(unittest.TestCase):
         self.assertEqual(loaded, project)
         self.assertIsInstance(restored, dict)
         self.assertEqual(restored, assets)
-        self.assertEqual(loaded.version, 8)
+        self.assertEqual(loaded.version, 9)
         validate_bundle(loaded, restored)
         self.assertEqual(self.source.read_bytes(), self.source_bytes)
         with zipfile.ZipFile(path) as archive:
@@ -86,7 +86,7 @@ class PdfBackgroundStorageTests(unittest.TestCase):
             data['version'] = version
             data['pages'][0].pop('clean_asset')
             project = Project.from_dict(data)
-            self.assertEqual(project.version, 8)
+            self.assertEqual(project.version, 9)
             self.assertEqual(project.pages[0].clean_asset, '')
             path = self.root / f'legacy-{version}.twproj'
             self.archive(path, project, {project.pages[0].asset: self.editor.original})

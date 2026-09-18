@@ -10,6 +10,12 @@ from .jobs import Job
 from .model import Paragraph, Run, Style, TextBox
 from .recognition import recognize, restored_background
 from .region_tools import RegionTools
+from .ui.inspector import Inspector
+from .translation_tools import TranslationTools
+from .translation_quality import (ENGINES, MAX_TEXT, digest, project_policy,
+                                  quality_issues, remember, request_for)
+from .chrome_translation import ChromeConnectionError
+from .native_source import prefer_native_source
 
 
 def overlaps(a, b):
@@ -18,12 +24,11 @@ def overlaps(a, b):
     return x*y / max(1, min(a[2]*a[3], b[2]*b[3])) > .45
 
 
-class Workflow(RegionTools):
+class Workflow(RegionTools, Inspector, TranslationTools):
     def init_workflow(self, auto_ocr):
         self.auto_ocr = auto_ocr
         self.job = None
         self.generation = 0
-        self.translator = None
         self.translation_after_ocr = False
         self.pending_ocr = False
         self.pool = QThreadPool(self)
@@ -49,18 +54,27 @@ class Workflow(RegionTools):
         self.stop_button.clicked.connect(self.cancel_job)
         self.statusBar().addPermanentWidget(self.stop_button)
         self.stop_button.hide()
-        self.source_dock = QDockWidget("원문 확인", self)
+        self.source_dock = QDockWidget("속성", self)
+        self.source_dock.setObjectName("inspectorDock")
         self.source_dock.setAllowedAreas(Qt.RightDockWidgetArea)
         self.source_dock.setFeatures(QDockWidget.DockWidgetClosable)
         panel = QWidget()
+        self.source_panel = panel
+        panel.setObjectName("inspectorPage")
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
         self.source_state = QLabel()
+        self.source_state.setObjectName("inspectorNotice")
         self.source_state.setWordWrap(True)
         layout.addWidget(self.source_state)
         self.source_crop = QLabel()
+        self.source_crop.setObjectName("sourceCrop")
         self.source_crop.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.source_crop)
         self.source_text = QTextEdit()
+        self.source_text.setAccessibleName("일본어 원문")
+        self.source_text.setPlaceholderText("문장을 선택하면 일본어 원문이 표시됩니다.")
         self.source_text.setReadOnly(True)
         self.source_text.setMinimumHeight(110)
         self.source_text.setMaximumHeight(220)
@@ -69,14 +83,17 @@ class Workflow(RegionTools):
         self.edit_source_button.clicked.connect(self.edit_source)
         layout.addWidget(self.edit_source_button)
         self.retranslate_button = QPushButton("다시 번역해 비교")
+        self.retranslate_button.setObjectName("primaryButton")
         self.retranslate_button.clicked.connect(self.retranslate)
         layout.addWidget(self.retranslate_button)
         self.candidate_text = QTextEdit()
+        self.candidate_text.setAccessibleName("새 번역 후보")
         self.candidate_text.setReadOnly(True)
         self.candidate_text.setMaximumHeight(180)
         self.candidate_text.setPlaceholderText("새 번역 후보")
         layout.addWidget(self.candidate_text)
         self.apply_candidate_button = QPushButton("이 번역 적용")
+        self.apply_candidate_button.setObjectName("primaryButton")
         self.apply_candidate_button.clicked.connect(self.apply_candidate)
         layout.addWidget(self.apply_candidate_button)
         self.erase_button = QPushButton("원문 가리기")
@@ -86,9 +103,9 @@ class Workflow(RegionTools):
         self.review_button = QPushButton("검토 완료")
         self.review_button.clicked.connect(self.mark_reviewed)
         layout.addWidget(self.review_button)
+        self.init_translation_tools(layout)
         layout.addStretch()
-        panel.setMinimumWidth(270)
-        panel.setMaximumWidth(370)
+        panel.setMinimumWidth(250)
         self.source_dock.setWidget(panel)
         self.addDockWidget(Qt.RightDockWidgetArea, self.source_dock)
         self.source_dock.hide()
@@ -100,11 +117,17 @@ class Workflow(RegionTools):
         return selected[0].model if len(selected) == 1 and isinstance(selected[0].model, TextBox) and (selected[0].model.source_text or selected[0].model.source_rect) else None
 
     def show_source(self):
+        if hasattr(self, "inspector"):
+            self.show_inspector("source")
+            self.update_source_panel()
+            self.update_region_tools()
+            return
         view = self.capture_canvas_view()
         self.source_dock.show()
         self.update_source_panel()
 
         self.update_region_tools()
+        self.update_translation_tools()
         self.restore_canvas_view(view)
 
     def update_workflow_tools(self):
@@ -121,6 +144,7 @@ class Workflow(RegionTools):
         self.retranslate_button.setEnabled(ready and idle and obj is not None and not self.effective_locked(obj))
         self.update_source_panel()
         self.update_region_tools()
+        self.update_translation_tools()
 
     def update_source_panel(self):
         if not hasattr(self, "source_dock"):
@@ -131,24 +155,44 @@ class Workflow(RegionTools):
         self.candidate_text.hide()
         self.apply_candidate_button.hide()
         if obj is None:
-            self.source_state.setText("카드에서 원문 영역을 선택해 주세요.")
+            self.source_state.setText("문서에서 원문이 있는 텍스트 상자를 선택하세요.")
             self.source_text.clear()
             self.source_crop.clear()
+            self.source_crop.hide()
             return
         status = "검토 완료" if obj.reviewed else "번역 초안 · 원문 대조 필요" if obj.text else "번역문을 기다리는 원문"
-        if not obj.source_confirmed and obj.confidence < 75:
+        if obj.source_method:
+            status += "\n원문: " + {"pdf": "PDF 텍스트", "ocr": "이미지 인식", "manual": "직접 수정"}[obj.source_method]
+        if not obj.source_confirmed and obj.confidence < 75 and obj.source_method != "pdf":
             status += "\n원문 인식이 불확실합니다. 먼저 확인해 주세요."
+        engine_names = {**ENGINES, "memory": "확정 번역", "glossary": "용어 표기 제안"}
+        if obj.text and obj.translation_engine:
+            status += "\n번역 출처: " + engine_names.get(obj.translation_engine, obj.translation_engine)
+            if obj.target_origin == "manual":
+                status += " · 직접 수정함"
+        status += "\n선택 엔진: " + ENGINES[self.project.translation_engine]
+        if obj.speaker:
+            status += "\n화자: " + obj.speaker
+        issues = quality_issues(obj.source_text, obj.text, self.project.glossary) if obj.text.strip() else []
+        if issues:
+            status += "\n\n" + "\n".join("• " + issue for issue in issues)
         self.source_state.setText(status)
         self.source_text.setPlainText(obj.source_text)
+        self.source_crop.setVisible(bool(obj.source_rect))
+        self.source_crop.clear()
         if obj.source_rect:
             x, y, w, h = obj.source_rect
             crop = self.image.copy(QRect(max(0, int(x)-4), max(0, int(y)-4), int(w)+8, int(h)+8))
             self.source_crop.setPixmap(QPixmap.fromImage(crop).scaled(270, 120, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.erase_button.blockSignals(True)
         self.erase_button.setChecked(obj.erase_enabled)
+        self.erase_button.blockSignals(False)
+        self.retranslate_button.setText("다시 번역해 비교" if obj.text else "번역")
         self.erase_button.setEnabled(bool(obj.erase_patch) and not self.effective_locked(obj) and not self.comparing)
         self.review_button.setEnabled(bool(obj.text) and not self.effective_locked(obj) and not self.comparing)
         if obj.candidate_text and obj.candidate_source == obj.source_text:
             self.candidate_text.setPlainText(obj.candidate_text)
+            self.candidate_text.setToolTip("번역 후보 · " + engine_names.get(obj.candidate_engine, "자동 번역"))
             self.candidate_text.show()
             self.apply_candidate_button.show()
             self.apply_candidate_button.setEnabled(not self.effective_locked(obj) and not self.comparing)
@@ -169,17 +213,24 @@ class Workflow(RegionTools):
         self.begin_operation()
         obj.source_text = text
         obj.source_confirmed = True
+        obj.source_method = "manual"
         obj.reviewed = False
-        obj.candidate_text = obj.candidate_source = ""
+        obj.candidate_text = obj.candidate_source = obj.candidate_engine = ""
         self.finish_operation("원문 수정")
 
     def mark_reviewed(self):
         self.finish_edit()
         obj = self.current_source()
-        if obj and not self.effective_locked(obj) and not self.comparing:
+        if obj and obj.text.strip() and not self.effective_locked(obj) and not self.comparing:
+            if len(obj.source_text) > MAX_TEXT or len(obj.text) > MAX_TEXT * 4:
+                self.status.setText("확정 번역에 저장하기에는 문장이 너무 깁니다. 문단을 나눠 주세요.")
+                return
             self.begin_operation()
             obj.reviewed = True
+            if obj.source_text.strip():
+                remember(self.project, request_for(self.project, self.current_page, obj), obj.text)
             self.finish_operation("검토 완료")
+            self.status.setText("검토 완료 · 같은 원문·화자·문맥에서 재사용할 수 있도록 저장했습니다")
 
     def toggle_erase(self, checked):
         self.finish_edit()
@@ -197,7 +248,8 @@ class Workflow(RegionTools):
             return
         self.begin_operation()
         self.set_target(obj, obj.candidate_text)
-        obj.candidate_text = obj.candidate_source = ""
+        obj.translation_engine = obj.candidate_engine
+        obj.candidate_text = obj.candidate_source = obj.candidate_engine = ""
         self.rebuild_scene([obj.id])
         self.fit_fresh_targets([obj.id])
         self.finish_operation("번역 후보 적용")
@@ -221,7 +273,7 @@ class Workflow(RegionTools):
         self.translation_after_ocr = False
         if self.job:
             self.job.cancelled.set()
-            self.status.setText("중단 중… 현재 문장 처리가 끝나면 멈춥니다")
+            self.status.setText("중단 중… 현재 처리 중인 구간이 끝나면 멈춥니다")
 
     def invalidate_jobs(self):
         if hasattr(self, "generation"):
@@ -281,8 +333,12 @@ class Workflow(RegionTools):
         self.finish_edit()
         original = self.original
         clean = self.assets.get(getattr(self.current_page, 'clean_asset', ''))
-        self.launch_job(lambda cancel, progress: recognize(original, cancel, progress, vertical,
-                            **({'clean_background': clean} if clean else {})), self.accept_regions)
+        native_chars = deepcopy(self.current_page.native_chars)
+        def read(cancel, progress):
+            regions = recognize(original, cancel, progress, vertical,
+                                **({'clean_background': clean} if clean else {}))
+            return [prefer_native_source(region, native_chars) for region in regions]
+        self.launch_job(read, self.accept_regions)
 
     def accept_regions(self, regions):
         self.finish_edit()
@@ -304,6 +360,7 @@ class Workflow(RegionTools):
             obj = TextBox(x=max(0, x-6), y=max(0, y-5), width=max(24, w+12), height=max(32, h+12),
                           z=len(page.objects), paragraphs=[Paragraph([Run("", Style(size=max(9, min(28, region.line_height*.68))))])],
                           source_text=region.text, source_rect=region.rect, confidence=max(0, min(100, region.confidence)),
+                          source_method=region.source_method,
                           erase_rect=region.erase_rect, erase_patch=region.patch, erase_mask=region.mask)
             page.objects.append(obj)
             added.append(obj.id)
@@ -337,26 +394,40 @@ class Workflow(RegionTools):
             self.start_translation([obj], candidates=True)
 
     def start_translation(self, objects, candidates):
+        if not self.project or self.job or self.comparing or getattr(self, "io_job", None):
+            return
         snapshot = {obj.id: (obj.source_text, obj.text, deepcopy(obj.paragraphs)) for obj in objects}
+        requests = {obj.id: {**request_for(self.project, self.current_page, obj), "generation": self.generation}
+                    for obj in objects}
+        reviewed = {obj.id: obj.reviewed for obj in objects}
+        memory = deepcopy(self.project.translation_memory)
+        policy = project_policy(self.project)
+        metadata = {}
+        service = self.translation_service
         def translate(cancelled, progress):
-            from .translation import LocalTranslator
-            progress("로컬 번역 모델 준비 중…")
-            if self.translator is None:
-                self.translator = LocalTranslator()
             rows = []
             for index, (key, (source, target, paragraphs)) in enumerate(snapshot.items()):
                 if cancelled.is_set():
                     break
-                progress(f"번역 초안 {index + 1}/{len(snapshot)} · 완료 후 원문과 대조해 주세요")
+                prefix = f"번역 {index + 1}/{len(snapshot)} · "
+                progress(prefix + ENGINES[requests[key]["engine"]])
                 try:
-                    target = self.translator.translate(source, cancelled)
+                    result = service.translate(requests[key], memory, cancelled,
+                                               lambda message: progress(prefix + message), fresh=candidates)
                     if cancelled.is_set():
                         break
-                    rows.append((key, target, None))
+                    metadata[key] = result
+                    rows.append((key, result["text"], None))
+                except ChromeConnectionError as exc:
+                    rows.append((key, "", str(exc)))
+                    # Keep completed rows and leave the remainder untranslated.
+                    # The next invocation can resume only the missing entries.
+                    break
                 except Exception as exc:
                     rows.append((key, "", str(exc)))
             return rows
-        self.launch_job(translate, lambda rows: self.accept_translations(rows, snapshot, candidates), keep_partial=True)
+        self.launch_job(translate, lambda rows: self.accept_translations(
+            rows, snapshot, candidates, metadata, requests, policy, reviewed), keep_partial=True)
 
     def set_target(self, obj, text):
         first = deepcopy(obj.paragraphs[0])
@@ -364,31 +435,46 @@ class Workflow(RegionTools):
         obj.paragraphs = [Paragraph([Run(line, deepcopy(style))], first.align, first.line_spacing, first.space_before, first.space_after) for line in text.splitlines() or [""]]
         obj.target_origin = "machine"
         obj.reviewed = False
+        obj.translation_engine = ""
 
-    def accept_translations(self, rows, snapshot, candidates):
+    def accept_translations(self, rows, snapshot, candidates, metadata=None, requests=None, policy=None, reviewed=None):
         self.finish_edit()
         self.begin_operation()
         applied, skipped, failed = [], 0, 0
+        current_policy = project_policy(self.project) if policy is not None else None
+        first_error = ""
         for key, text, error in rows:
             item = self.items_by_id.get(key)
             if error or not text.strip():
                 failed += 1
+                if not first_error:
+                    first_error = str(error or "번역문을 만들지 못했습니다.")[:200]
                 continue
             if item is None or self.effective_locked(item.model) or (item.model.source_text, item.model.text, item.model.paragraphs) != snapshot[key]:
                 skipped += 1
                 continue
             obj = item.model
+            if requests is not None:
+                current_request = {**request_for(self.project, self.current_page, obj), "generation": self.generation}
+                if (current_policy != policy or digest(current_request) != digest(requests[key])
+                        or obj.reviewed != reviewed[key]):
+                    skipped += 1
+                    continue
+            engine = (metadata or {}).get(key, {}).get("engine", "")
             if candidates:
                 obj.candidate_text, obj.candidate_source = text, obj.source_text
+                obj.candidate_engine = engine
             else:
                 self.set_target(obj, text)
+                obj.translation_engine = engine
             applied.append(key)
         self.rebuild_scene(applied[:1])
         if not candidates:
             self.fit_fresh_targets(applied)
         self.finish_operation("번역 후보" if candidates else "번역 초안")
         self.autosave()
-        self.status.setText(f"{'후보' if candidates else '초안'} {len(applied)}개 · 변경 보존 {skipped}개 · 실패 {failed}개 · 미처리 {len(snapshot)-len(rows)}개 · 원문 대조 필요")
+        summary = f"{'후보' if candidates else '초안'} {len(applied)}개 · 변경 보존 {skipped}개 · 실패 {failed}개 · 미처리 {len(snapshot)-len(rows)}개"
+        self.status.setText(summary + (f" · {first_error}" if first_error else " · 원문 대조 필요"))
         if applied:
             self.show_source()
 

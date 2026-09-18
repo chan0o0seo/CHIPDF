@@ -16,6 +16,14 @@ from studio.runtime import APP_ID, APP_MUTEX
 ROOT = Path(__file__).resolve().parent
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def build(app_source, version, qa_token=None):
     if not re.fullmatch(r'\d{1,4}\.\d{1,4}\.\d{1,4}', version):
         raise ValueError('버전은 숫자 세 부분으로 입력해 주세요.')
@@ -30,7 +38,7 @@ def build(app_source, version, qa_token=None):
     if not qa_token:
         release = json.loads((app_source / 'release.json').read_text('utf-8'))
         if (release.get('version') != version or release.get('build_id') != app_source.parent.name or
-                release.get('exe_sha256') != hashlib.sha256((app_source / 'Translation Studio.exe').read_bytes()).hexdigest()):
+                release.get('exe_sha256') != sha256_file(app_source / 'Translation Studio.exe')):
             raise ValueError('배포본 버전·실행 파일이 설치할 버전과 일치하지 않습니다. 이동식 배포본을 다시 빌드해 주세요.')
     forbidden = {'.twproj', '.bak', '.tmp'}
     files = list(app_source.rglob('*'))
@@ -64,12 +72,12 @@ def build(app_source, version, qa_token=None):
         subprocess.run(command, check=True, stdout=stream, stderr=subprocess.STDOUT,
                        creationflags=subprocess.CREATE_NO_WINDOW, timeout=900)
     installer = output / f'치pdf-{version}-Setup.exe'
-    sha256 = hashlib.sha256(installer.read_bytes()).hexdigest()
+    sha256 = sha256_file(installer)
     info = {'installer': str(installer), 'sha256': sha256, 'qa': bool(qa_token),
             'version': version, 'app_id': app_id, 'group_name': group, 'mutex_name': mutex,
             'uninstall_key': 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + app_id + '_is1',
             'build_id': build_id, 'source_release': str(app_source),
-            'source_exe_sha256': hashlib.sha256((app_source / 'Translation Studio.exe').read_bytes()).hexdigest(),
+            'source_exe_sha256': sha256_file(app_source / 'Translation Studio.exe'),
             'compiler_version': COMPILER_VERSION, 'bytes': installer.stat().st_size}
     metadata = output / ('installer-qa.json' if qa_token else 'installer.json')
     metadata.write_text(json.dumps(info, ensure_ascii=False, indent=2), 'utf-8')

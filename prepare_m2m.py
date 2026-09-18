@@ -1,19 +1,28 @@
-"""Download official M2M100 weights, convert to int8, and run the same 20 samples."""
+"""Prepare the pinned 1.2B translation model without running any inference."""
 from pathlib import Path
 import sys
 ROOT = Path(__file__).resolve().parent
-sys.path[:0] = [str(ROOT / ".convert-deps"), str(ROOT / ".deps")]
+sys.path[:0] = [str(ROOT / ".convert-deps"), str(ROOT / ".deps"), str(ROOT)]
 import json
 import os
 import shutil
-import time
-import urllib.request
+import uuid
+from studio.translation_config import MODEL_DIRECTORY, MODEL_FILES, MODEL_ID, MODEL_REVISION
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 os.environ["HF_HOME"] = str(ROOT / "vendor" / "hf-cache")
 
 def main():
+    out = ROOT / "vendor" / MODEL_DIRECTORY
+    origin = {"model": MODEL_ID, "revision": MODEL_REVISION, "quantization": "int8"}
+    if out.exists():
+        recorded = json.loads((out / "origin.json").read_text("utf-8"))
+        if any(recorded.get(key) != value for key, value in origin.items()) or not all(
+                (out / name).is_file() and (out / name).stat().st_size for name in MODEL_FILES):
+            raise ValueError("Existing translation model is incomplete or has a different identity.")
+        print("Pinned 1.2B translation model is already prepared. No inference was run.", flush=True)
+        return
     from huggingface_hub import snapshot_download
     from ctranslate2.converters import TransformersConverter
     import sentencepiece
@@ -24,35 +33,26 @@ def main():
             return self.LoadFromSerializedProto(Path(filename).read_bytes())
         return original_loader(self, filename)
     sentencepiece.SentencePieceProcessor.LoadFromFile = load
-    out = ROOT / "vendor" / "m2m100-int8"
-    if not (out / "model.bin").exists():
-        model = "facebook/m2m100_418M"
-        revision = "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636"
-        print("Downloading official M2M100 revision " + revision, flush=True)
-        source = snapshot_download(model, revision=revision, local_dir=ROOT / "vendor" / "m2m100-source",
-                                   allow_patterns=["*.json", "pytorch_model.bin", "sentencepiece.bpe.model", "README.md", "LICENSE*"])
-        print("Converting to CPU int8", flush=True)
-        TransformersConverter(source).convert(str(out), quantization="int8", force=True)
-        shutil.copy2(Path(source) / "sentencepiece.bpe.model", out / "sentencepiece.bpe.model")
-        (out / "origin.json").write_text(json.dumps({"model": model, "revision": revision, "quantization": "int8"}), "utf-8")
-    import ctranslate2
-    tokenizer = sentencepiece.SentencePieceProcessor(model_proto=(out / "sentencepiece.bpe.model").read_bytes())
-    files = {p.name: p.read_bytes() for p in out.iterdir() if p.name in ("model.bin", "config.json", "shared_vocabulary.json")}
-    start = time.perf_counter()
-    translator = ctranslate2.Translator("m2m100", files=files, device="cpu", compute_type="int8", intra_threads=4)
-    load_seconds = time.perf_counter() - start
-    rows = []
-    from engine_probe import SAMPLES
-    (ROOT / "qa").mkdir(exist_ok=True)
-    for sentence in SAMPLES:
-        start = time.perf_counter()
-        source = ["__ja__"] + tokenizer.encode(sentence, out_type=str) + ["</s>"]
-        result = translator.translate_batch([source], target_prefix=[["__ko__"]], beam_size=4, max_decoding_length=384)[0]
-        target = tokenizer.decode([t for t in result.hypotheses[0] if t not in ("__ko__", "</s>", "<s>", "<pad>")])
-        result_row = {"source": sentence, "target": target, "seconds": round(time.perf_counter() - start, 3)}
-        rows.append(result_row)
-        print(json.dumps(result_row, ensure_ascii=True), flush=True)
-    (ROOT / "qa" / "m2m-benchmark.json").write_text(json.dumps({"load_seconds": load_seconds, "rows": rows}, ensure_ascii=False, indent=2), "utf-8")
+    print("Downloading " + MODEL_ID + " revision " + MODEL_REVISION, flush=True)
+    source = snapshot_download(MODEL_ID, revision=MODEL_REVISION, token=False,
+                               local_dir=ROOT / "vendor" / "m2m100-1.2b-source",
+                               allow_patterns=["*.json", "pytorch_model.bin", "sentencepiece.bpe.model", "README.md", "LICENSE*"],
+                               max_workers=2)
+    staging = ROOT / ".build" / ("translation-model-" + uuid.uuid4().hex[:12])
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    print("Converting weights to CPU int8 (no translation or benchmark)", flush=True)
+    TransformersConverter(source, load_as_float16=True, low_cpu_mem_usage=True).convert(
+        str(staging), quantization="int8")
+    shutil.copy2(Path(source) / "sentencepiece.bpe.model", staging / "sentencepiece.bpe.model")
+    shutil.copy2(Path(source) / "README.md", staging / "MODEL_CARD.md")
+    shutil.copy2(ROOT / "vendor/notices/M2M100-MIT.txt", staging / "LICENSE.txt")
+    (staging / "origin.json").write_text(json.dumps(origin, indent=2), "utf-8")
+    if not all((staging / name).is_file() and (staging / name).stat().st_size for name in MODEL_FILES):
+        raise ValueError("Model conversion did not produce all required files.")
+    if not staging.resolve().is_relative_to((ROOT / ".build").resolve()) or out.resolve() != (ROOT / "vendor" / MODEL_DIRECTORY).resolve():
+        raise ValueError("Model output is outside the expected project directories.")
+    staging.rename(out)
+    print("Prepared " + str(out) + ". No inference was run.", flush=True)
 
 if __name__ == "__main__":
     main()

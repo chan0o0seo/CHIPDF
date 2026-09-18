@@ -11,7 +11,7 @@ from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QImage, QImageReader, 
 from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QDoubleSpinBox,
                               QFileDialog, QFontComboBox, QHBoxLayout, QLabel, QListWidget,
                               QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-                              QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget)
+                              QSizePolicy, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget)
 
 from .canvas import Canvas, CardScene, TextItem
 from .model import Page, Project, TextBox, uid
@@ -26,6 +26,9 @@ from .collection import Collection
 from .document_io import import_files
 from .presets import Presets
 from .font_favorites import FontFavorites
+from .link_tools import LinkTools
+from .ui.ribbon import OfficeRibbon
+from .ui.theme import apply_theme
 from . import APP_NAME, __version__
 
 
@@ -55,7 +58,7 @@ class Change(QUndoCommand):
             self.editor.apply_snapshot(self.after, self.after_page)
 
 
-class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, FontFavorites):
+class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, FontFavorites, LinkTools, OfficeRibbon):
     def __init__(self, data_dir: Path, auto_ocr=False):
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -81,7 +84,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.save_timer.setInterval(850)
         self.save_timer.timeout.connect(self.autosave)
         self.setWindowTitle(APP_NAME)
-        self.resize(1260, 880)
+        self.resize(1440, 900)
         self.setMinimumSize(900, 600)
         self.scene = CardScene(self)
         self.canvas = Canvas(self.scene, self)
@@ -93,8 +96,12 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.init_editing()
         self.init_layout_tools()
         self.init_collection()
+        self.init_link_tools()
         self.init_presets()
         self.init_font_favorites()
+        self.init_inspector()
+        self.init_ribbon()
+        apply_theme(self)
         self.undo_stack.indexChanged.connect(self.update_tools)
         self.update_tools()
 
@@ -108,22 +115,6 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         return action
 
     def make_ui(self):
-        self.setStyleSheet("""
-            QMainWindow, QWidget { background: #f8f9f7; color: #243c3a; }
-            QToolBar { border: 0; border-bottom: 1px solid #dfe5e1; spacing: 7px; padding: 8px 12px; }
-            QToolButton, QPushButton { border: 1px solid transparent; padding: 7px 12px; border-radius: 5px; }
-            QToolButton:hover, QPushButton:hover { background: #e4eee9; }
-            QToolButton:checked { background: #d8e9e2; }
-            QToolButton:disabled { color: #a2ada7; }
-            QPushButton#primary { background: #2e7068; color: white; padding: 12px 24px; }
-            QPushButton#primary:hover { background: #235c55; }
-            QComboBox, QDoubleSpinBox { border: 1px solid #d5dfd8; border-radius: 4px; padding: 5px; background: white; }
-            QListWidget { border: 0; background: #f5f7f4; outline: 0; }
-            QListWidget::item { padding: 12px; border-radius: 6px; }
-            QListWidget::item:selected { background: #dfece5; color: #234f48; }
-            QStatusBar { background: #f8f9f7; border-top: 1px solid #dfe5e1; }
-            QSplitter::handle { background: #dfe5e1; width: 1px; }
-        """)
         self.open_action = self.action("열기", self.choose_open, "Ctrl+O")
         self.save_action = self.action("작업 저장", self.save, "Ctrl+S")
         self.save_as_action = self.action("다른 이름으로 저장", lambda: self.save(save_as=True), "Ctrl+Shift+S")
@@ -133,7 +124,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.action("다시 실행", self.redo, "Ctrl+Shift+Z")
         self.duplicate_action = self.action("복제", self.duplicate, "Ctrl+D")
         self.compare_action = self.action("원본 비교", self.compare, checkable=True)
-        self.export_action = self.action("완성본 저장", self.choose_export, "Ctrl+Shift+E")
+        self.export_action = self.action("내보내기", self.choose_export, "Ctrl+Shift+E")
         self.file_menu = self.menuBar().addMenu("파일")
         self.file_menu.addActions([self.open_action, self.save_action, self.save_as_action, self.export_action])
         edit_menu = self.menuBar().addMenu("편집")
@@ -142,7 +133,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.delete_action = self.action("삭제", self.delete_selected)
         edit_menu.addAction(self.delete_action)
         help_menu = self.menuBar().addMenu("도움말")
-        help_menu.addAction(self.action("이 시제품에서 할 수 있는 일", self.show_about))
+        help_menu.addAction(self.action("치pdf 정보", self.show_about))
         main = QToolBar("기본 도구")
         self.main_toolbar = main
         main.setMovable(False)
@@ -159,9 +150,21 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         main.addAction(self.save_action)
         main.addAction(self.export_action)
         self.addToolBarBreak()
+        self.context_bar = QToolBar("선택 도구")
+        self.context_bar.setObjectName("contextTools")
+        self.context_bar.setMovable(False)
+        self.context_bar.setStyleSheet("QToolBar#contextTools { padding: 0; spacing: 0; }")
+        self.addToolBar(self.context_bar)
+        # Keep one row at the largest panel's height. Changing the selection
+        # must not resize the canvas while a mouse press is being handled.
+        self.context_stack = QStackedWidget()
+        self.context_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.context_empty = QWidget()
+        self.context_stack.addWidget(self.context_empty)
+        self.context_bar.addWidget(self.context_stack)
         self.format_bar = QToolBar("글자 서식")
         self.format_bar.setMovable(False)
-        self.addToolBar(self.format_bar)
+        self.context_stack.addWidget(self.format_bar)
         self.font_box = QFontComboBox()
         self.font_box.setFixedWidth(178)
         self.font_box.activated.connect(lambda: self.format_font())
@@ -177,7 +180,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.italic_action = self.action("기울임", lambda checked: self.format_flag("italic", checked), checkable=True)
         self.underline_action = self.action("밑줄", lambda checked: self.format_flag("underline", checked), checkable=True)
         self.format_bar.addActions([self.bold_action, self.italic_action, self.underline_action])
-        self.format_bar.addAction(self.action("글자색", self.choose_color))
+        self.color_action = self.action("글자색", self.choose_color)
+        self.format_bar.addAction(self.color_action)
         self.align_box = QComboBox()
         self.align_box.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
         self.align_box.activated.connect(self.format_alignment)
@@ -189,12 +193,19 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.format_bar.addAction(self.delete_action)
 
         splitter = QSplitter()
+        self.workspace_splitter = splitter
         sidebar = QWidget()
-        sidebar.setMinimumWidth(180)
-        sidebar.setMaximumWidth(260)
+        self.page_sidebar = sidebar
+        sidebar.setObjectName("pagePanel")
+        sidebar.setMinimumWidth(172)
+        sidebar.setMaximumWidth(300)
         side = QVBoxLayout(sidebar)
-        label = QLabel("작업 자료")
-        label.setStyleSheet("font-weight: 600; padding: 12px 6px;")
+        side.setContentsMargins(8, 8, 8, 6)
+        side.setSpacing(4)
+        label = QLabel("페이지")
+        self.page_panel_title = label
+        label.setProperty("role", "groupTitle")
+        label.setContentsMargins(8, 4, 8, 8)
         side.addWidget(label)
         self.card_list = QListWidget()
         self.card_list.setIconSize(QSize(140, 150))
@@ -202,28 +213,33 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.card_list.setResizeMode(QListWidget.Adjust)
         self.card_list.setMovement(QListWidget.Static)
         side.addWidget(self.card_list)
-        sidebar_note = QLabel("카드 클릭으로 전환 · Ctrl/Shift로 여러 장 선택")
+        sidebar_note = QLabel("Ctrl / Shift로 여러 페이지 선택")
         sidebar_note.setWordWrap(True)
-        sidebar_note.setStyleSheet("color: #72817b; padding: 8px; font-size: 11px;")
+        sidebar_note.setProperty("role", "secondary")
+        sidebar_note.setContentsMargins(6, 6, 6, 6)
         side.addWidget(sidebar_note)
         splitter.addWidget(sidebar)
         self.center = QStackedWidget()
         welcome = QWidget()
+        welcome.setObjectName("welcomePage")
         layout = QVBoxLayout(welcome)
+        layout.setContentsMargins(32, 32, 32, 32)
         layout.addStretch()
-        eyebrow = QLabel("TRANSLATION STUDIO")
+        eyebrow = QLabel("치pdf  ·  DOCUMENT WORKSPACE")
         eyebrow.setAlignment(Qt.AlignCenter)
-        eyebrow.setStyleSheet("color: #578177; font-size: 12px; letter-spacing: 3px;")
-        title = QLabel("자료 위에서, 바로 편집")
+        eyebrow.setStyleSheet("color: #0F6CBD; font-size: 12px; letter-spacing: 2px;")
+        title = QLabel("원문을 읽고,\n한국어로 완성하세요")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 32px; font-weight: 600; padding: 12px;")
-        desc = QLabel("일본어 문장을 사각형으로 선택하세요.\n원문을 확인하고, 한국어를 입력하거나 번역을 누르세요.")
+        title.setStyleSheet("font-size: 30px; font-weight: 600; padding: 16px; color: #242424;")
+        desc = QLabel("PDF와 이미지를 열고 문장을 선택하세요.\n번역부터 글자 편집, 페이지 링크까지 한곳에서.")
         desc.setAlignment(Qt.AlignCenter)
-        desc.setStyleSheet("color: #75827b; font-size: 14px; line-height: 1.6;")
+        desc.setStyleSheet("color: #616161; font-size: 14px;")
+        desc.setWordWrap(True)
         button_row = QHBoxLayout()
         button_row.addStretch()
         open_button = QPushButton("PDF·이미지·작업 열기")
-        open_button.setObjectName("primary")
+        open_button.setObjectName("primaryButton")
+        open_button.setMinimumHeight(44)
         open_button.clicked.connect(self.choose_open)
         button_row.addWidget(open_button)
         button_row.addStretch()
@@ -232,6 +248,10 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         layout.addWidget(desc)
         layout.addSpacing(24)
         layout.addLayout(button_row)
+        tip = QLabel("또는 파일을 이 창으로 끌어 놓으세요")
+        tip.setProperty("role", "secondary")
+        tip.setAlignment(Qt.AlignCenter)
+        layout.addWidget(tip)
         try:
             recent = json.loads((self.data_dir / "recent.json").read_text("utf-8"))
             recent_path = Path(recent["path"])
@@ -246,12 +266,18 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.center.addWidget(self.canvas)
         splitter.addWidget(self.center)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([206, 1054])
+        splitter.setSizes([196, 1000])
         self.setCentralWidget(splitter)
         self.status = QLabel("PDF · 이미지 · 작업 파일을 열 수 있습니다")
-        self.status.setStyleSheet("padding: 5px 12px; color: #61736a;")
+        self.status.setProperty("role", "secondary")
+        self.status.setContentsMargins(10, 3, 8, 3)
+        self.status.setMinimumWidth(0)
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.statusBar().addWidget(self.status, 1)
         self.zoom_label = QLabel("100%")
+        self.page_position_label = QLabel()
+        self.page_position_label.setProperty("role", "secondary")
+        self.statusBar().addPermanentWidget(self.page_position_label)
         self.zoom_label.setMinimumWidth(48)
         for label, callback in [("−", lambda: self.canvas.zoom(1 / 1.15)), ("＋", lambda: self.canvas.zoom(1.15)), ("화면에 맞춤", self.canvas.fit_page)]:
             button = QPushButton(label)
@@ -341,6 +367,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         if hasattr(self, "background_timer"):
             self.background_timer.start()
         self.update_undo()
+        self.update_document_header()
 
     def rebuild_scene(self, selection=()):
         view = self.capture_canvas_view()
@@ -389,7 +416,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.duplicate_action.setEnabled(editable and mutable)
         self.delete_action.setEnabled(editable and mutable)
         all_text = bool(selected) and all(isinstance(i.model, TextBox) for i in selected)
-        self.format_bar.setVisible(editable and mutable and all_text)
+        self.context_bar.setVisible(bool(self.project) and not hasattr(self, "ribbon_tabs"))
+        self.context_stack.setCurrentWidget(self.format_bar if editable and mutable and all_text else self.context_empty)
         if all_text:
             item = selected[0]
             style = item.model.paragraphs[0].runs[0].style
@@ -415,6 +443,9 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.update_editing_tools()
         self.update_layout_tools()
         self.update_presets_tools()
+        self.update_link_tools()
+        self.update_inspector()
+        self.update_ribbon()
 
     def set_writing_mode(self, mode):
         if mode not in ('horizontal', 'vertical-rl'):
@@ -595,9 +626,11 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         except (OSError, ValueError) as exc:
             self.last_error = str(exc)
             self.status.setText("저장 실패 · 작업 저장에서 다른 위치를 선택해 주세요")
+            self.update_document_header("저장 실패")
             return False
         self.dirty = False
         self.status.setText("자동 저장됨" + (" · 작업 저장으로 보관 위치 선택" if not self.project_path else ""))
+        self.update_document_header()
         return True
 
     def save(self, checked=False, save_as=False):
@@ -629,6 +662,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.dirty = False
         self.save_timer.stop()
         self.status.setText("저장됨 · " + path.name)
+        self.update_document_header()
 
     def render_image(self):
         if not self.project:
@@ -676,7 +710,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             "브러시로 칠한 뒤 지우기를 누르면 해당 부분의 배경을 복원합니다.\n\n"
             "원문 확인 · 원문 수정 · 새 번역 후보 비교 · 글자 획 가리기\n"
             "한글 편집 · 부분 서식 · 이동/크기/회전 · 자동 저장 · PNG 출력\n\n"
-            "로컬 번역은 오역이 있는 시험용 초안입니다. 원문과 대조해 주세요.\n"
+            "Chrome 내장 번역 · 오프라인 번역 · 작품 용어집 · 확정 번역 재사용\n"
+            "자동 번역은 초안입니다. 원문과 대조해 주세요.\n"
             "도형·이미지 삽입 · 자르기·뒤집기 · 정렬·간격 · 앞뒤 순서·잠금\n"
             "그룹·안쪽 편집 · 맞춤 안내선 · 문단 간격·여백\nPDF·여러 카드 가져오기 · 작품 저장 · PNG/PDF 묶음 출력\n"
             "세로쓰기 · 이름으로 서식 저장 · 다른 카드에 글자 배치 적용\n"
@@ -697,3 +732,5 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             event.accept() if answer == QMessageBox.Discard else event.ignore()
             if event.isAccepted():
                 self.loading = True
+        if event.isAccepted():
+            self.translation_service.close()

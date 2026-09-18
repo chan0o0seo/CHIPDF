@@ -23,7 +23,7 @@ class CardScene(QGraphicsScene):
         if not self.show_controls or self.editor.comparing:
             return
         painter.save()
-        pen = QPen(QColor("#428c91"), 1, Qt.DashLine)
+        pen = QPen(QColor("#0F6CBD"), 1, Qt.DashLine)
         pen.setCosmetic(True)
         painter.setPen(pen)
         if self.editor.active_group_id in self.editor.items_by_id:
@@ -174,7 +174,7 @@ class Canvas(CloneStamp, QGraphicsView):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
         self.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing | QPainter.SmoothPixmapTransform)
-        self.setBackgroundBrush(QColor("#e8ebe9"))
+        self.setBackgroundBrush(QColor("#E8ECF1"))
         self.setFrameShape(QGraphicsView.NoFrame)
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -283,10 +283,10 @@ class Canvas(CloneStamp, QGraphicsView):
         painter.save()
         painter.setClipRect(self._page_rect())
         if self.tool == "ocr" and self._region_start is not None:
-            pen = QPen(QColor("#258780"), 1, Qt.DashLine)
+            pen = QPen(QColor("#0F6CBD"), 1, Qt.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
-            painter.setBrush(QColor(37, 135, 128, 35))
+            painter.setBrush(QColor(15, 108, 189, 30))
             painter.drawRect(QRectF(self._region_start, self._region_end).normalized())
         elif self.tool in ("brush", "stamp"):
             if self.tool == "brush" and not self._brush_overlay.isNull():

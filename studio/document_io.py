@@ -118,6 +118,10 @@ def import_files(paths, cancel=None, progress=lambda message: None):
         elif path.suffix.lower() == '.pdf':
             import pypdfium2 as pdfium
             from .pdf_background import render_without_text
+            from .pdf_links import read_page_links
+            from .native_source import read_native_chars
+            first_page = len(pages)
+            imported_links = []
             # Every PDFium call and handle lifetime stays within this mutex.
             with PDF_LOCK:
                 try:
@@ -164,6 +168,17 @@ def import_files(paths, cancel=None, progress=lambda message: None):
                                 if clean_image.convertToFormat(QImage.Format_RGBA8888) != image.convertToFormat(QImage.Format_RGBA8888):
                                     clean_data = cleaned[0]
                             append(image, f'{path.stem} · {index+1}', path, (w, h), clean_data)
+                            try:
+                                chars = read_native_chars(pdf_page, image.width(), image.height(), cancel)
+                            except (pdfium.PdfiumError, ValueError):
+                                chars = []
+                            if sum(len(p.native_chars) for p in pages) + len(chars) <= 200000:
+                                pages[-1].native_chars = chars
+                            imported_links.append(read_page_links(document, pdf_page, image.width(), image.height()))
+            for index, links in enumerate(imported_links):
+                pages[first_page+index].pdf_links = [
+                    {'rect': link['rect'], 'page_id': pages[first_page+link['page_index']].id}
+                    for link in links]
         else:
             raise ValueError('지원하지 않는 자료입니다: '+path.name)
     project = Project(name=paths[0].stem if len(paths) == 1 else paths[0].parent.name, pages=pages)
@@ -222,6 +237,8 @@ def export_collection(project, assets, indices, destination, kind, cancel=None, 
             from reportlab.lib.utils import ImageReader
             canvas = Canvas(str(stage / 'output.pdf'), pageCompression=1)
             canvas.setTitle(project.name)
+            from .pdf_links import export_links
+            included_ids = {p.id for p in snapshot}
         for count, (index, page) in enumerate(zip(indices, snapshot)):
             progress(count)
             check_cancel(cancel)
@@ -230,7 +247,12 @@ def export_collection(project, assets, indices, destination, kind, cancel=None, 
             if canvas:
                 w, h = (page.width_pt, page.height_pt) if page.width_pt and page.height_pt else (page.width*72/200, page.height*72/200)
                 canvas.setPageSize((w, h))
+                canvas.bookmarkPage(page.id)
                 canvas.drawImage(ImageReader(BytesIO(data)), 0, 0, w, h, mask='auto')
+                for (x, y, rw, rh), target in export_links(page, included_ids):
+                    canvas.linkRect('', target, (x*w/page.width, (page.height-y-rh)*h/page.height,
+                                                 (x+rw)*w/page.width, (page.height-y)*h/page.height),
+                                    relative=0, thickness=0)
                 canvas.showPage()
             else:
                 name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', page.name).strip(' .')[:70] or '카드'

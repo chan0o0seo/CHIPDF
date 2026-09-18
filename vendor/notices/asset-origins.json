@@ -1,7 +1,7 @@
 {
   "model": {
-    "model": "facebook/m2m100_418M",
-    "revision": "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636",
+    "model": "facebook/m2m100_1.2B",
+    "revision": "7b36184180524c1a1bbfa37f120a608046250b98",
     "quantization": "int8"
   },
   "assets": [
@@ -43,37 +43,38 @@
       "sha256": "bf1e2640954691797e2dc14f38533e601b59ee37958698ae0f0b81dc6f09c71b"
     },
     {
-      "file": "m2m100-int8\\config.json",
+      "file": "m2m100-1.2b-int8\\config.json",
       "bytes": 233,
       "sha256": "72901fbd8abd89fb5cf4a388f26fc681f5c4c58a1e1a88b30b879f107270e7ee"
     },
     {
-      "file": "m2m100-int8\\LICENSE.txt",
+      "file": "m2m100-1.2b-int8\\LICENSE.txt",
       "bytes": 1086,
       "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
     },
     {
-      "file": "m2m100-int8\\model.bin",
-      "bytes": 490667752,
-      "sha256": "590e9c7e229e84de8affe7b15487660a286d3d76e44a4ca10e33099b198d9a76"
+      "file": "m2m100-1.2b-int8\\model.bin",
+      "bytes": 1245831572,
+      "sha256": "ca8c891a05f34da03689b8b2e89d9cfd2504d080a8f7e10213fccdb8d9c996c1"
     },
     {
-      "file": "m2m100-int8\\MODEL_CARD.md",
+      "file": "m2m100-1.2b-int8\\MODEL_CARD.md",
       "bytes": 4603,
-      "sha256": "1fd660f130aedc5ecf1796b47ab47d43d3c4b36541f5387b7adb3df75cb5dfdb"
+      "sha256": "f4358f5d8ce691958a36ea897b7360c6ec8039dc5c275331d6953a2a8338d30f",
+      "url": "https://huggingface.co/facebook/m2m100_1.2B/raw/7b36184180524c1a1bbfa37f120a608046250b98/README.md"
     },
     {
-      "file": "m2m100-int8\\origin.json",
-      "bytes": 113,
-      "sha256": "d6c7519a99046e80fd8d6422c838ce01b0f084dab122330dd503491ffd307da6"
+      "file": "m2m100-1.2b-int8\\origin.json",
+      "bytes": 125,
+      "sha256": "714fb144e43fc64aa541d46738d47d351f1d1f19de4f4d9730e5b1991f5cf349"
     },
     {
-      "file": "m2m100-int8\\sentencepiece.bpe.model",
+      "file": "m2m100-1.2b-int8\\sentencepiece.bpe.model",
       "bytes": 2423393,
       "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a"
     },
     {
-      "file": "m2m100-int8\\shared_vocabulary.json",
+      "file": "m2m100-1.2b-int8\\shared_vocabulary.json",
       "bytes": 2924622,
       "sha256": "18916ac68f9ac8fbd5250ca603dcb3861aac8672924d93a8dadc82eb3147f941"
     }

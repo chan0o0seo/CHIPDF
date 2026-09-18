@@ -95,7 +95,7 @@ CompressionThreads=2
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Messages]
-korean.WelcomeLabel2=카드와 PDF를 번역하고 편집하는 치pdf를 설치합니다.%n%n기존 버전이 있으면 프로그램 파일을 업데이트합니다. 저장한 작품(.twproj), 자동 저장과 백업, 저장한 서식은 유지됩니다.%n%n계속하기 전에 실행 중인 치pdf를 닫아 주세요.
+korean.WelcomeLabel2=카드와 PDF를 번역하고 편집하는 치pdf를 설치합니다.%n%n기본 번역은 설치된 Chrome의 내장 번역을 사용합니다. 오프라인 번역 모델은 별도 팩으로 추가할 수 있습니다.%n%n기존 작품(.twproj), 자동 저장·백업·서식과 이미 설치된 오프라인 모델은 유지됩니다.%n%n계속하기 전에 실행 중인 치pdf를 닫아 주세요.
 korean.FinishedLabel=치pdf 설치를 마쳤습니다.%n%n시작 메뉴에서 프로그램을 실행할 수 있습니다. 저장한 작품과 기존 설정은 그대로 사용할 수 있습니다.
 korean.ConfirmUninstall=치pdf 프로그램을 제거하시겠습니까?%n%n저장한 작품(.twproj), 자동 저장과 백업, 저장한 서식은 삭제하지 않습니다.
 korean.UninstalledAll=치pdf 프로그램을 제거했습니다.%n%n저장한 작품과 사용자 데이터는 유지했습니다. 다시 설치하면 계속 사용할 수 있습니다.

@@ -1,5 +1,6 @@
 """Build an independent windowed Windows app, with no adjacent legacy dependency."""
 from pathlib import Path
+import argparse
 import os
 import sys
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +18,21 @@ import shutil
 import uuid
 import PyInstaller.__main__
 from studio import APP_NAME, __version__
+from studio.translation_config import MODEL_DIRECTORY, MODEL_FILES, MODEL_ID, MODEL_REVISION
+
+parser = argparse.ArgumentParser(description="치pdf 경량 이동식 배포본 생성")
+parser.add_argument("--with-offline-model", action="store_true", help="기존 방식으로 오프라인 모델도 포함")
+args = parser.parse_args()
+model_dir = ROOT / "vendor" / MODEL_DIRECTORY
+model_origin = None
+model_options = []
+if args.with_offline_model:
+    model_origin = json.loads((model_dir / "origin.json").read_text("utf-8"))
+    if (model_origin.get("model"), model_origin.get("revision"), model_origin.get("quantization")) != (MODEL_ID, MODEL_REVISION, "int8"):
+        raise ValueError("Prepare the pinned translation model before building.")
+    if not all((model_dir / name).is_file() and (model_dir / name).stat().st_size for name in MODEL_FILES):
+        raise ValueError("The translation model is incomplete. Run prepare_m2m.py first.")
+    model_options = ["--add-data", str(model_dir) + ";vendor/" + MODEL_DIRECTORY]
 
 build_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
 dist = ROOT / "dist" / build_id
@@ -51,7 +67,7 @@ PyInstaller.__main__.run([
     "--collect-all", "pypdfium2", "--collect-all", "pypdfium2_raw",
     "--collect-all", "reportlab", "--collect-all", "charset_normalizer",
     "--add-data", str(ROOT / "vendor" / "tessdata") + ";ocr-models",
-    "--add-data", str(ROOT / "vendor" / "m2m100-int8") + ";vendor/m2m100-int8",
+    *model_options,
     "--add-data", str(ROOT / 'assets') + ';assets',
     str(ROOT / "main.py"),
 ])
@@ -77,10 +93,19 @@ if python_license.exists():
     shutil.copy2(python_license, licenses / "Python-LICENSE.txt")
 (app_dir / 'release.json').write_text(json.dumps({
     'version': __version__, 'build_id': build_id,
+    'edition': 'offline-bundled' if args.with_offline_model else 'light',
+    'default_translation_engine': 'chrome',
+    'translation_model': model_origin,
     'exe_sha256': hashlib.sha256((app_dir / 'Translation Studio.exe').read_bytes()).hexdigest(),
 }, indent=2), 'utf-8')
-archive = shutil.make_archive(str(dist / "Translation-Studio-Windows"), "zip", dist, "Translation Studio")
+archive_name = "Translation-Studio-Windows" if args.with_offline_model else "ChiPDF-Windows-Light"
+archive = shutil.make_archive(str(dist / archive_name), "zip", dist, "Translation Studio")
 launcher = '@echo off\r\nstart "" "%~dp0dist\\' + build_id + '\\Translation Studio\\Translation Studio.exe" %*\r\n'
 (ROOT / "Start Translation Studio.cmd").write_text(launcher, "ascii", newline="")
-(ROOT / "latest-build.json").write_text(json.dumps({"id": build_id, "version": __version__, "exe": str(app_dir / "Translation Studio.exe"), "zip": archive}, indent=2), "utf-8")
+size_bytes = sum(path.stat().st_size for path in app_dir.rglob('*') if path.is_file())
+(ROOT / "latest-build.json").write_text(json.dumps({"id": build_id, "version": __version__,
+    "edition": "offline-bundled" if args.with_offline_model else "light",
+    "exe": str(app_dir / "Translation Studio.exe"), "zip": archive,
+    "unpacked_bytes": size_bytes, "zip_bytes": Path(archive).stat().st_size}, indent=2), "utf-8")
 print("BUILD_RESULT=" + json.dumps(str(app_dir / "Translation Studio.exe"), ensure_ascii=True))
+print("BUILD_SIZE=" + json.dumps({"unpacked_bytes": size_bytes, "zip_bytes": Path(archive).stat().st_size}))
