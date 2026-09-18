@@ -14,3 +14,10 @@ vendor/tessdata/
 __pycache__/
 *.pyc
 latest-*.json
+
+# Local implementation notes and internal reports
+/IMPLEMENTATION_*.ko.md
+/PRODUCT_PLAN.ko.md
+/ENGINE_REVIEW.ko.md
+/WINDOWS_COMPATIBILITY.ko.md
+/design/

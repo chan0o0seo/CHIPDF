@@ -57,8 +57,7 @@ PyInstaller.__main__.run([
 ])
 app_dir = dist / "Translation Studio"
 shutil.copy2(ROOT / "README.md", app_dir / "README.ko.md")
-for name in ("THIRD_PARTY.md", "PRODUCT_PLAN.ko.md", "IMPLEMENTATION_01.ko.md", "IMPLEMENTATION_02.ko.md", "IMPLEMENTATION_03.ko.md", "IMPLEMENTATION_04.ko.md", "IMPLEMENTATION_05.ko.md", "IMPLEMENTATION_06.ko.md", "IMPLEMENTATION_07.ko.md", "IMPLEMENTATION_08.ko.md", "IMPLEMENTATION_09.ko.md", "WINDOWS_COMPATIBILITY.ko.md", "ENGINE_REVIEW.ko.md"):
-    shutil.copy2(ROOT / name, app_dir / name)
+shutil.copy2(ROOT / "THIRD_PARTY.md", app_dir / "THIRD_PARTY.md")
 licenses = app_dir / "licenses"
 licenses.mkdir()
 shutil.copytree(ROOT / "vendor" / "notices", licenses / "models-and-native")
