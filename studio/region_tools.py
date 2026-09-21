@@ -1,5 +1,6 @@
 """User-selected OCR and brush repairs; original page assets stay untouched."""
 from copy import deepcopy
+from io import BytesIO
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QActionGroup
@@ -9,9 +10,10 @@ from .document_io import png_data
 from .model import Paragraph, Project, Run, Style, TextBox
 from .recognition import make_erase_patch, recognize_region
 from .native_source import prefer_native_source
+from .brush_options import BrushOptions
 
 
-class RegionTools:
+class RegionTools(BrushOptions):
     def init_region_tools(self):
         self.manual_task = None
         self.pdf_background_action = self.action('PDF 원래 배경 적용…', self.choose_pdf_background)
@@ -44,6 +46,7 @@ class RegionTools:
         self.brush_size_box.setSuffix(' px')
         self.brush_size_box.valueChanged.connect(self.canvas.set_brush_size)
         self.brush_size_widget = self.region_bar.addWidget(self.brush_size_box)
+        self.init_brush_options()
         self.apply_erase_action = self.action('지우기', self.apply_brush_erase)
         self.cancel_region_action = self.action('선택 취소', self.cancel_region_selection)
         self.region_bar.addActions([self.apply_erase_action, self.cancel_region_action])
@@ -60,7 +63,7 @@ class RegionTools:
         if tool != 'select' and hasattr(self, 'ribbon_tabs'):
             self.ribbon_tabs.setCurrentIndex(2)
         messages = {'ocr': '일본어 문장을 사각형으로 드래그하세요 · Esc로 취소',
-                    'brush': '지울 부분을 칠한 뒤 지우기를 누르세요 · Esc로 취소',
+                    'brush': 'Alt+클릭으로 글자색 선택 · 글씨 주변을 칠한 뒤 지우기 · Shift+드래그로 선택 빼기',
                     'stamp': 'Alt+클릭으로 원본 지점을 지정한 뒤 드래그하세요 · 휠 버튼 드래그로 화면 이동',
                     'select': '상자를 선택하거나 더블클릭해서 글자를 입력하세요'}
         if self.project:
@@ -87,6 +90,11 @@ class RegionTools:
         self.brush_size_widget.setVisible(tool in ('brush', 'stamp'))
         self.brush_size_box.setPrefix('도장 크기 ' if tool == 'stamp' else '브러시 ')
         self.brush_size_box.setEnabled(idle)
+        for widget in (self.brush_mode_box, self.erase_engine_box):
+            widget.setVisible(tool == 'brush')
+            widget.setEnabled(ready and idle)
+        self.erase_settings_action.setEnabled(ready and idle)
+        self.erase_mask_action.setEnabled(ready and idle and self.canvas._has_brush_selection)
         self.stamp_hint_widget.setVisible(tool == 'stamp')
         self.apply_erase_action.setVisible(tool == 'brush')
         self.apply_erase_action.setEnabled(ready and idle and self.canvas._has_brush_selection)
@@ -203,7 +211,22 @@ class RegionTools:
         self.finish_edit()
         self.refresh_background()
         original = png_data(self.background_image if not self.background_image.isNull() else self.image)
-        mask_png = png_data(mask)
+        background = self.background_image if not self.background_image.isNull() else self.image
+        try:
+            selected = self.brush_erase_mask(background, mask)
+            if hasattr(selected, 'isNull'):
+                mask_png = png_data(selected)
+            else:
+                if not selected.getbbox():
+                    self.status.setText('선택한 색의 글씨가 없습니다 · Alt+클릭으로 글자색을 고르세요')
+                    return
+                stream = BytesIO()
+                selected.save(stream, 'PNG')
+                mask_png = stream.getvalue()
+        except (ValueError, OSError) as exc:
+            self.status.setText(str(exc))
+            return
+        options = dict(self.erase_options)
         clean = self.assets.get(getattr(self.current_page, 'clean_asset', ''))
         native_original = self.original
         signature = self.background_signature
@@ -215,6 +238,7 @@ class RegionTools:
                 return
             self.accept_brush_erase(patch)
         self.launch_job(lambda cancelled, progress: make_erase_patch(original, mask_png, cancelled, progress,
+                            engine=options['engine'], model_path=options['model_path'] or None,
                             **({'clean_background': clean, 'native_original': native_original} if clean else {})),
                         accept)
 

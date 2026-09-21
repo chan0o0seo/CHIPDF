@@ -7,6 +7,7 @@ or text color to every QWidget or to the graphics scene's text items.
 from __future__ import annotations
 
 from string import Template
+from pathlib import Path
 
 from PySide6.QtWidgets import QWidget
 
@@ -339,11 +340,34 @@ QComboBox QAbstractItemView {
 }
 QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {
     width: 18px;
+    subcontrol-origin: border;
     border: 0;
     background: $hoverSurface;
 }
 QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {
     background: $accentSoft;
+}
+QAbstractSpinBox::up-button { subcontrol-position: top right; }
+QAbstractSpinBox::down-button { subcontrol-position: bottom right; }
+QAbstractSpinBox::up-arrow {
+    image: url("$arrowUp");
+    width: 10px;
+    height: 6px;
+}
+QAbstractSpinBox::down-arrow {
+    image: url("$arrowDown");
+    width: 10px;
+    height: 6px;
+}
+QAbstractSpinBox::up-arrow:disabled, QAbstractSpinBox::up-arrow:off {
+    image: url("$arrowUpDisabled");
+}
+QAbstractSpinBox::down-arrow:disabled, QAbstractSpinBox::down-arrow:off {
+    image: url("$arrowDownDisabled");
+}
+QAbstractSpinBox, QAbstractSpinBox:focus,
+QWidget#ribbonShell QAbstractSpinBox, QWidget#ribbonShell QAbstractSpinBox:focus {
+    padding-right: 22px;
 }
 QCheckBox, QRadioButton {
     color: $text;
@@ -360,7 +384,7 @@ QCheckBox::indicator, QRadioButton::indicator {
     height: 16px;
 }
 QWidget#pagePanel, QWidget#inspectorPanel, QWidget#inspectorPage, QWidget#sourcePanel,
-QWidget#welcomePage, QScrollArea#inspectorScroll, QDockWidget {
+QWidget#welcomePage, QScrollArea#welcomeScroll, QScrollArea#inspectorScroll, QDockWidget {
     background: $panelSurface;
 }
 QWidget#pagePanel {
@@ -608,6 +632,10 @@ def stylesheet(base_font_size: float = 10.0) -> str:
         smallFontSize=f"{max(9.0, size - 1):g}",
         titleFontSize=f"{size + 1:g}",
         dialogTitleFontSize=f"{size + 4:g}",
+        arrowUp=(Path(__file__).resolve().parents[2] / 'assets/spin-up.svg').as_posix(),
+        arrowDown=(Path(__file__).resolve().parents[2] / 'assets/spin-down.svg').as_posix(),
+        arrowUpDisabled=(Path(__file__).resolve().parents[2] / 'assets/spin-up-disabled.svg').as_posix(),
+        arrowDownDisabled=(Path(__file__).resolve().parents[2] / 'assets/spin-down-disabled.svg').as_posix(),
     )
 
 

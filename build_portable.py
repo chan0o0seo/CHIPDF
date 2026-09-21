@@ -13,6 +13,7 @@ os.environ["PATH"] = os.pathsep.join(map(str, [ROOT / ".deps" / "PySide6", ROOT 
                                              system_root / "System32", system_root]))
 import datetime
 import hashlib
+import importlib
 import json
 import shutil
 import uuid
@@ -22,6 +23,7 @@ from studio.translation_config import MODEL_DIRECTORY, MODEL_FILES, MODEL_ID, MO
 
 parser = argparse.ArgumentParser(description="치pdf 경량 이동식 배포본 생성")
 parser.add_argument("--with-offline-model", action="store_true", help="기존 방식으로 오프라인 모델도 포함")
+parser.add_argument("--with-inpaint", action="store_true", help="LaMa 사진 복원 모델과 ONNX CPU 런타임 포함")
 args = parser.parse_args()
 model_dir = ROOT / "vendor" / MODEL_DIRECTORY
 model_origin = None
@@ -33,6 +35,35 @@ if args.with_offline_model:
     if not all((model_dir / name).is_file() and (model_dir / name).stat().st_size for name in MODEL_FILES):
         raise ValueError("The translation model is incomplete. Run prepare_m2m.py first.")
     model_options = ["--add-data", str(model_dir) + ";vendor/" + MODEL_DIRECTORY]
+
+inpaint_metadata = None
+inpaint_options = ["--exclude-module", "onnxruntime"]
+if args.with_inpaint:
+    from prepare_inpaint import verify_model
+
+    inpaint_model = ROOT / "vendor" / "models" / "inpaint" / "lama_fp32.onnx"
+    if not inpaint_model.is_file() or not inpaint_model.stat().st_size:
+        raise ValueError("LaMa model is missing. Run prepare_inpaint.py before building with --with-inpaint.")
+    inpaint_origin_data = verify_model(inpaint_model)
+    try:
+        inpaint_runtime = importlib.import_module("onnxruntime")
+    except (ImportError, OSError) as exc:
+        raise RuntimeError(
+            "ONNX Runtime is unavailable. Install requirements-inpaint.txt into .deps with "
+            "python -m pip install --target .deps -r requirements-inpaint.txt, then rebuild."
+        ) from exc
+    # Include inference and its provider DLLs without model-export/benchmark tools.
+    # collect-all pulls optional pandas/scipy tooling from the developer runtime.
+    inpaint_options = ["--hidden-import", "onnxruntime", "--collect-binaries", "onnxruntime",
+                       "--add-data", str(inpaint_model) + ";vendor/models/inpaint"]
+    inpaint_metadata = {
+        "engine": "lama", "runtime": "onnxruntime", "runtime_version": inpaint_runtime.__version__,
+        "model": "vendor/models/inpaint/lama_fp32.onnx", "sha256": inpaint_origin_data["sha256"],
+        "bytes": inpaint_model.stat().st_size, "origin": inpaint_origin_data,
+    }
+    inpaint_origin = inpaint_model.parent / "origin.json"
+    if inpaint_origin.is_file():
+        inpaint_options.extend(["--add-data", str(inpaint_origin) + ";vendor/models/inpaint"])
 
 build_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
 dist = ROOT / "dist" / build_id
@@ -68,6 +99,7 @@ PyInstaller.__main__.run([
     "--collect-all", "reportlab", "--collect-all", "charset_normalizer",
     "--add-data", str(ROOT / "vendor" / "tessdata") + ";ocr-models",
     *model_options,
+    *inpaint_options,
     "--add-data", str(ROOT / 'assets') + ';assets',
     str(ROOT / "main.py"),
 ])
@@ -96,15 +128,17 @@ if python_license.exists():
     'edition': 'offline-bundled' if args.with_offline_model else 'light',
     'default_translation_engine': 'chrome',
     'translation_model': model_origin,
+    'inpaint_model': inpaint_metadata,
     'exe_sha256': hashlib.sha256((app_dir / 'Translation Studio.exe').read_bytes()).hexdigest(),
 }, indent=2), 'utf-8')
 archive_name = "Translation-Studio-Windows" if args.with_offline_model else "ChiPDF-Windows-Light"
+if args.with_inpaint:
+    archive_name += "-LaMa"
 archive = shutil.make_archive(str(dist / archive_name), "zip", dist, "Translation Studio")
-launcher = '@echo off\r\nstart "" "%~dp0dist\\' + build_id + '\\Translation Studio\\Translation Studio.exe" %*\r\n'
-(ROOT / "Start Translation Studio.cmd").write_text(launcher, "ascii", newline="")
 size_bytes = sum(path.stat().st_size for path in app_dir.rglob('*') if path.is_file())
 (ROOT / "latest-build.json").write_text(json.dumps({"id": build_id, "version": __version__,
     "edition": "offline-bundled" if args.with_offline_model else "light",
+    "inpaint_model": inpaint_metadata,
     "exe": str(app_dir / "Translation Studio.exe"), "zip": archive,
     "unpacked_bytes": size_bytes, "zip_bytes": Path(archive).stat().st_size}, indent=2), "utf-8")
 print("BUILD_RESULT=" + json.dumps(str(app_dir / "Translation Studio.exe"), ensure_ascii=True))

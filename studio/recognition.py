@@ -241,7 +241,7 @@ def native_background_patch(original, clean_background, selection, cancelled=Non
     return result
 
 
-def _make_patch(source, mask, cancelled=None, progress=None):
+def _make_patch(source, mask, cancelled=None, progress=None, engine='legacy', model_path=None):
     _check_cancel(cancelled)
     bounds = mask.getbbox()
     if not bounds or sum(mask.histogram()[1:]) > 600_000:
@@ -252,7 +252,13 @@ def _make_patch(source, mask, cancelled=None, progress=None):
     # Restore all selected pixels first; retain the original soft mask for one
     # composite at preview/export time, so antialiased brush edges are not blended twice.
     binary = mask.point(lambda value: 255 if value else 0)
-    restored = restore_mask(source, binary, cancelled, progress)
+    if engine == 'legacy':
+        restored = restore_mask(source, binary, cancelled, progress)
+    elif engine == 'lama':
+        from .inpaint_engine import restore_lama
+        restored = restore_lama(source, binary, cancelled, progress, model_path=model_path)
+    else:
+        raise ValueError('지원하지 않는 배경 복원 방식입니다.')
     _check_cancel(cancelled)
     patch_png, mask_png = encode_png(restored.crop(bounds)), encode_png(mask.crop(bounds))
     if max(len(patch_png), len(mask_png)) > 8_000_000:
@@ -262,7 +268,7 @@ def _make_patch(source, mask, cancelled=None, progress=None):
 
 
 def make_erase_patch(original: bytes, mask_png: bytes, cancelled=None, progress=None,
-                     clean_background=None, native_original=None):
+                     clean_background=None, native_original=None, engine='legacy', model_path=None):
     """Turn a page-sized brush mask into one bounded, persistent background repair."""
     _check_cancel(cancelled)
     source = _source_image(original)
@@ -275,7 +281,7 @@ def make_erase_patch(original: bytes, mask_png: bytes, cancelled=None, progress=
     if progress:
         progress("브러시로 선택한 부분의 배경을 복원하고 있습니다…")
     native = native_background_patch(native_original or original, clean_background, mask, cancelled)
-    patch, encoded_mask, rect = native or _make_patch(source, mask, cancelled, progress)
+    patch, encoded_mask, rect = native or _make_patch(source, mask, cancelled, progress, engine, model_path)
     return BackgroundPatch(rect=rect, patch=patch, mask=encoded_mask)
 
 
@@ -326,7 +332,7 @@ def restore_mask(source, mask, cancelled=None, progress=None):
                     frontier.append((nx, ny))
     if any(pending):
         raise ValueError("복원할 주변 배경이 부족합니다.")
-    for _ in range(16):
+    for _ in range(32):
         _check_cancel(cancelled)
         crop.paste(crop.filter(ImageFilter.GaussianBlur(.85)), (0, 0), local_mask)
     result = source.convert("RGBA")

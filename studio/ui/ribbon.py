@@ -202,7 +202,8 @@ class OfficeRibbon:
         self.take_ribbon_widget(self.format_bar, self.font_box)
         self.take_ribbon_widget(self.format_bar, self.size_box)
         self.font_box.setFixedWidth(170)
-        self.size_box.setFixedWidth(80)
+        self.size_box.setMinimumWidth(104)
+        self.size_box.setMaximumWidth(128)
         self.font_box.setAccessibleName('글꼴')
         self.size_box.setAccessibleName('글자 크기')
         first_row.addWidget(self.font_box)
@@ -289,6 +290,16 @@ class OfficeRibbon:
         layout.addWidget(self.ribbon_button(self.cancel_region_action))
         col.addWidget(finish_row)
         translate.addWidget(options)
+        erase = RibbonGroup('글씨 지우기')
+        col = erase.column()
+        for widget in (self.brush_mode_box, self.erase_engine_box):
+            self.take_ribbon_widget(self.region_bar, widget)
+            col.addWidget(widget)
+        col = erase.column()
+        col.addWidget(self.ribbon_button(self.erase_settings_action))
+        col.addWidget(self.ribbon_button(self.erase_mask_action))
+        translate.addWidget(erase)
+        self.ribbon_erase_group = erase
         reading = RibbonGroup('번역')
         reading.body_layout.addWidget(self.ribbon_button(self.translate_action, large=True))
         col = reading.column()
@@ -401,6 +412,7 @@ class OfficeRibbon:
         tool = self.canvas.tool
         self.orientation_box.setVisible(tool == 'ocr')
         self.brush_size_box.setVisible(tool in ('brush', 'stamp'))
+        self.ribbon_erase_group.setVisible(tool == 'brush')
         self.ribbon_tool_hint.setVisible(tool in ('select', 'stamp'))
         self.ribbon_tool_hint.setText('Alt+클릭으로 원본 지정' if tool == 'stamp' else '영역 도구를 선택하세요')
 

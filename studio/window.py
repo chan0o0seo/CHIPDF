@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import json
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QPointF, QRectF, QSize, Qt, QTimer
@@ -11,7 +10,7 @@ from PySide6.QtGui import (QAction, QColor, QFont, QIcon, QImage, QImageReader, 
 from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QDoubleSpinBox,
                               QFileDialog, QFontComboBox, QHBoxLayout, QLabel, QListWidget,
                               QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-                              QSizePolicy, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget)
+                              QScrollArea, QSizePolicy, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget)
 
 from .canvas import Canvas, CardScene, TextItem
 from .model import Page, Project, TextBox, uid
@@ -26,6 +25,7 @@ from .collection import Collection
 from .document_io import import_files
 from .presets import Presets
 from .font_favorites import FontFavorites
+from .recent_files import RecentFiles
 from .link_tools import LinkTools
 from .ui.ribbon import OfficeRibbon
 from .ui.theme import apply_theme
@@ -58,7 +58,7 @@ class Change(QUndoCommand):
             self.editor.apply_snapshot(self.after, self.after_page)
 
 
-class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, FontFavorites, LinkTools, OfficeRibbon):
+class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, FontFavorites, RecentFiles, LinkTools, OfficeRibbon):
     def __init__(self, data_dir: Path, auto_ocr=False):
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -230,6 +230,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         eyebrow.setStyleSheet("color: #0F6CBD; font-size: 12px; letter-spacing: 2px;")
         title = QLabel("원문을 읽고,\n한국어로 완성하세요")
         title.setAlignment(Qt.AlignCenter)
+        title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         title.setStyleSheet("font-size: 30px; font-weight: 600; padding: 16px; color: #242424;")
         desc = QLabel("PDF와 이미지를 열고 문장을 선택하세요.\n번역부터 글자 편집, 페이지 링크까지 한곳에서.")
         desc.setAlignment(Qt.AlignCenter)
@@ -252,17 +253,14 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         tip.setProperty("role", "secondary")
         tip.setAlignment(Qt.AlignCenter)
         layout.addWidget(tip)
-        try:
-            recent = json.loads((self.data_dir / "recent.json").read_text("utf-8"))
-            recent_path = Path(recent["path"])
-            if recent_path.exists():
-                resume = QPushButton("마지막 작업 이어서 열기")
-                resume.clicked.connect(lambda: self.open_path(str(recent_path)))
-                layout.addWidget(resume, alignment=Qt.AlignCenter)
-        except (OSError, ValueError, KeyError):
-            pass
+        self.init_recent_files(layout)
         layout.addStretch()
-        self.center.addWidget(welcome)
+        welcome_scroll = QScrollArea()
+        welcome_scroll.setObjectName('welcomeScroll')
+        welcome_scroll.setWidgetResizable(True)
+        welcome_scroll.setFrameShape(QScrollArea.NoFrame)
+        welcome_scroll.setWidget(welcome)
+        self.center.addWidget(welcome_scroll)
         self.center.addWidget(self.canvas)
         splitter.addWidget(self.center)
         splitter.setStretchFactor(1, 1)
@@ -622,13 +620,13 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         path = self.project_path or self.recovery_path()
         try:
             save_project(path, self.project, self.assets)
-            atomic_write(self.data_dir / "recent.json", json.dumps({"path": str(path)}, ensure_ascii=False).encode("utf-8"))
         except (OSError, ValueError) as exc:
             self.last_error = str(exc)
             self.status.setText("저장 실패 · 작업 저장에서 다른 위치를 선택해 주세요")
             self.update_document_header("저장 실패")
             return False
         self.dirty = False
+        self.remember_recent(path)
         self.status.setText("자동 저장됨" + (" · 작업 저장으로 보관 위치 선택" if not self.project_path else ""))
         self.update_document_header()
         return True
@@ -658,7 +656,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             raise ValueError("원본 자료에 작업 파일을 덮어쓸 수 없습니다.")
         save_project(path, self.project, self.assets)
         self.project_path = path
-        atomic_write(self.data_dir / "recent.json", json.dumps({"path": str(path)}, ensure_ascii=False).encode("utf-8"))
+        self.remember_recent(path, replace_path=self.recovery_path())
         self.dirty = False
         self.save_timer.stop()
         self.status.setText("저장됨 · " + path.name)

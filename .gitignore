@@ -16,6 +16,9 @@ vendor/tessdata/
 __pycache__/
 *.pyc
 latest-*.json
+/ChiPDF-*-Setup.exe
+/ChiPDF-*-Windows.zip
+/ChiPDF-*-release-notes.md
 
 # Local implementation notes and internal reports
 /IMPLEMENTATION_*.ko.md

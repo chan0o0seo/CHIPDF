@@ -1,0 +1,2 @@
+# Optional CPU-only LaMa runtime; Pillow and numpy are in requirements.txt.
+onnxruntime==1.23.2

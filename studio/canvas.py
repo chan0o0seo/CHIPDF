@@ -153,6 +153,8 @@ class Canvas(CloneStamp, QGraphicsView):
     files_dropped = Signal(list)
     region_selected = Signal(QRectF)
     brush_selection_changed = Signal(bool)
+    brush_stroke_finished = Signal()
+    brush_color_sampled = Signal(QPointF)
     tool_changed = Signal(str)
 
     def __init__(self, scene, editor):
@@ -166,6 +168,8 @@ class Canvas(CloneStamp, QGraphicsView):
         self._brush_cursor = None
         self._brush_mask = QImage()
         self._brush_overlay = QImage()
+        self._brush_preview = QImage()
+        self._brush_subtract = False
         self._has_brush_selection = False
         self._pan_position = None
         self._pan_cursor = None
@@ -231,12 +235,17 @@ class Canvas(CloneStamp, QGraphicsView):
     def brush_mask_image(self):
         return self._brush_mask.copy() if self._has_brush_selection else QImage()
 
+    def set_brush_preview(self, overlay):
+        self._brush_preview = overlay.copy()
+        self.viewport().update()
+
     def clear_tool_selection(self):
         self.cancel_stamp_stroke()
         self._region_start = self._region_end = None
         self._brush_last = self._brush_cursor = None
         self._brush_mask = QImage()
         self._brush_overlay = QImage()
+        self._brush_preview = QImage()
         had_selection = self._has_brush_selection
         self._has_brush_selection = False
         if had_selection:
@@ -248,6 +257,7 @@ class Canvas(CloneStamp, QGraphicsView):
         self.set_tool("select")
 
     def _paint_brush_segment(self, start, end):
+        self._brush_preview = QImage()
         bounds = self._page_rect()
         radius = self.brush_size / 2
         stroke_bounds = QRectF(start, end).normalized().adjusted(-radius, -radius, radius, radius)
@@ -261,8 +271,8 @@ class Canvas(CloneStamp, QGraphicsView):
             self._brush_overlay.fill(Qt.transparent)
         # Keep a single binary page mask and update only the latest stroke segment.
         # The separate tinted image avoids recolouring every page pixel on movement.
-        for image, color in ((self._brush_mask, QColor("white")),
-                             (self._brush_overlay, QColor(220, 66, 103, 95))):
+        for image, color in ((self._brush_mask, QColor("black" if self._brush_subtract else "white")),
+                             (self._brush_overlay, QColor(Qt.transparent) if self._brush_subtract else QColor(220, 66, 103, 95))):
             painter = QPainter(image)
             painter.setCompositionMode(QPainter.CompositionMode_Source)
             painter.setClipRect(bounds)
@@ -290,7 +300,7 @@ class Canvas(CloneStamp, QGraphicsView):
             painter.drawRect(QRectF(self._region_start, self._region_end).normalized())
         elif self.tool in ("brush", "stamp"):
             if self.tool == "brush" and not self._brush_overlay.isNull():
-                painter.drawImage(QPointF(), self._brush_overlay)
+                painter.drawImage(QPointF(), self._brush_preview if not self._brush_preview.isNull() else self._brush_overlay)
             if self._brush_cursor is not None:
                 pen = QPen(QColor("white"), 3)
                 pen.setCosmetic(True)
@@ -339,6 +349,10 @@ class Canvas(CloneStamp, QGraphicsView):
         elif self.tool == "stamp":
             self.stamp_press(point, event.modifiers())
         elif self._page_rect().contains(point):
+            if event.modifiers() & Qt.AltModifier:
+                self.brush_color_sampled.emit(point)
+                return
+            self._brush_subtract = bool(event.modifiers() & Qt.ShiftModifier)
             self._brush_last = point
             self._brush_cursor = point
             self._paint_brush_segment(point, point)
@@ -403,6 +417,7 @@ class Canvas(CloneStamp, QGraphicsView):
         elif self.tool == "brush" and self._brush_last is not None:
             self._paint_brush_segment(self._brush_last, point)
             self._brush_last = None
+            self.brush_stroke_finished.emit()
         self.viewport().update()
 
     def mouseDoubleClickEvent(self, event):

@@ -1,7 +1,6 @@
 """One canvas, a page list, and document-wide persistence and output."""
 from copy import deepcopy
 from datetime import datetime
-import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -144,7 +143,7 @@ class Collection:
         if self.dirty:
             self.autosave()
         else:
-            atomic_write(self.data_dir / 'recent.json', json.dumps({'path': str(self.project_path)}, ensure_ascii=False).encode('utf-8'))
+            self.remember_recent(self.project_path)
             self.status.setText(f'작품 열림 · {len(project.pages)}장')
         self.queue_current_ocr()
 
