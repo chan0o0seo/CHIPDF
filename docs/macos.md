@@ -13,12 +13,17 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --only-binary=:all: -r requirements-dev.txt -r requirements-inpaint.txt
+if [ "$(uname -m)" = "x86_64" ]; then
+  brew install tesseract pkgconf
+  python -m pip install Cython==3.1.6
+  python -m pip install --no-cache-dir --force-reinstall --no-deps --no-binary=tesserocr --no-build-isolation tesserocr==2.10.0
+fi
 python prepare_assets.py
 python prepare_inpaint.py --download
 python main.py
 ```
 
-OCR은 macOS용 tesserocr wheel을 사용합니다. 앱 데이터와 자동 저장본, 사용자 설정은 `~/Library/Application Support/TranslationStudio`에 보관합니다. Chrome는 `/Applications` 또는 `~/Applications`에 설치된 Google Chrome를 찾습니다. Chrome의 언어팩 준비와 번역 연결은 Windows 버전과 같은 방식입니다.
+OCR은 macOS용 tesserocr를 사용합니다. Intel용 wheel의 cysignals C API 불일치를 피하기 위해 Intel 개발 환경에서는 Homebrew의 Tesseract와 Cython으로 바인딩을 다시 빌드합니다. 배포 앱에는 필요한 실행 라이브러리를 함께 담습니다. 앱 데이터와 자동 저장본, 사용자 설정은 `~/Library/Application Support/TranslationStudio`에 보관합니다. Chrome는 `/Applications` 또는 `~/Applications`에 설치된 Google Chrome를 찾습니다. Chrome의 언어팩 준비와 번역 연결은 Windows 버전과 같은 방식입니다.
 
 기본 한글 글꼴은 Apple SD Gothic Neo이며, 저장된 문서의 기존 글꼴 이름은 그대로 유지합니다. Qt가 저장·복사·붙여넣기 단축키의 Ctrl을 macOS의 Command로 처리합니다. Finder에서 앱으로 전달된 문서 열기 요청도 처리합니다.
 

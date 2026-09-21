@@ -43,6 +43,12 @@ jobs:
         run: |
           python prepare_assets.py
           python prepare_inpaint.py --download
+      - name: Rebuild Intel OCR against the installed C API
+        if: matrix.arch == 'x86_64'
+        run: |
+          brew install tesseract pkgconf
+          python -m pip install Cython==3.1.6
+          python -m pip install --no-cache-dir --force-reinstall --no-deps --no-binary=tesserocr --no-build-isolation tesserocr==2.10.0
       - name: Test editing and platform behavior
         run: python -m unittest test_platform_support test_recent_files test_studio test_text_mask test_inpaint_engine
       - name: Build app bundle

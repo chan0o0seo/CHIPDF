@@ -50,6 +50,21 @@ def main():
     shutil.copytree(ROOT / 'docs', resources / 'docs')
     licenses = resources / 'licenses'
     shutil.copytree(ROOT / 'vendor/notices', licenses / 'models-and-native')
+    if arch == 'x86_64':
+        # The Intel OCR binding is built against Homebrew; preserve the notices
+        # and exact formula versions of its transitive native dependencies.
+        formulas = ['tesseract'] + subprocess.check_output(
+            ['brew', 'deps', '--formula', 'tesseract'], text=True).splitlines()
+        brew_info = subprocess.check_output(['brew', 'info', '--json=v2', *formulas], text=True)
+        (licenses / 'homebrew-formulas.json').write_text(brew_info, 'utf-8')
+        for formula in formulas:
+            prefix = Path(subprocess.check_output(['brew', '--prefix', formula], text=True).strip())
+            for source in prefix.rglob('*'):
+                if source.is_file() and any(word in source.name.lower()
+                                           for word in ('license', 'copying', 'notice', 'copyright')):
+                    target = licenses / 'homebrew' / formula / source.relative_to(prefix)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, target)
     # Include licenses from the active venv as well as project-local dependencies.
     for distribution in importlib.metadata.distributions():
         for entry in distribution.files or []:
@@ -68,7 +83,7 @@ def main():
                 'architecture': arch, 'minimum_macos': '15.0',
                 'signing': 'ad-hoc; not notarized', 'inpaint_model': model}
     (resources / 'release.json').write_text(json.dumps(metadata, indent=2), 'utf-8')
-    packages = ['tesserocr', 'ctranslate2', 'sentencepiece', 'pypdfium2',
+    packages = ['tesserocr', 'cysignals', 'ctranslate2', 'sentencepiece', 'pypdfium2',
                 'pypdfium2_raw', 'reportlab', 'charset_normalizer']
     data = [(str(ROOT / 'assets'), 'assets'), (str(ocr), 'ocr-models'),
             (str(resources), 'release-info')]
