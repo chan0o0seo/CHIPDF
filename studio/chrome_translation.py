@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 from threading import Event, Lock, Thread
 import time
 from urllib.parse import urlsplit
@@ -19,6 +20,9 @@ class ChromeConnectionError(RuntimeError):
 
 def chrome_executable():
     candidates = []
+    if sys.platform == 'darwin':
+        for base in (Path('/Applications'), Path.home() / 'Applications'):
+            candidates.append(base / 'Google Chrome.app/Contents/MacOS/Google Chrome')
     if os.name == "nt":
         import winreg
         for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
@@ -194,7 +198,7 @@ class ChromeTranslator:
             try:
                 subprocess.Popen([str(executable), "--new-window", "--app=" + url],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == 'nt' else 0)
             except OSError as exc:
                 raise ChromeConnectionError("Chrome를 열지 못했습니다. 설치 상태를 확인해 주세요.") from exc
             self.last_opened = now

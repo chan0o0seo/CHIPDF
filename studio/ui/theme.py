@@ -10,6 +10,7 @@ from string import Template
 from pathlib import Path
 
 from PySide6.QtWidgets import QWidget
+from ..platform_support import ui_font_families
 
 
 COLORS = {
@@ -58,7 +59,7 @@ QLabel, QAbstractButton, QComboBox, QAbstractSpinBox, QLineEdit,
 QMenu, QMenuBar, QTabBar, QGroupBox, QStatusBar, QDockWidget,
 QListWidget, QTreeWidget, QTableWidget, QHeaderView {
     color: $text;
-    font-family: "Malgun Gothic", "Segoe UI";
+    font-family: $uiFontFamilies;
     font-size: ${uiFontSize}pt;
 }
 QWidget#documentHeader, QToolBar#documentHeader, QWidget#ribbonTabsSurface {
@@ -371,7 +372,7 @@ QWidget#ribbonShell QAbstractSpinBox, QWidget#ribbonShell QAbstractSpinBox:focus
 }
 QCheckBox, QRadioButton {
     color: $text;
-    font-family: "Malgun Gothic", "Segoe UI";
+    font-family: $uiFontFamilies;
     font-size: ${uiFontSize}pt;
     spacing: 7px;
     padding: 3px 0;
@@ -445,7 +446,7 @@ QDialog QTextEdit, QDialog QPlainTextEdit {
     border: 1px solid $controlBorder;
     border-radius: 4px;
     padding: 7px;
-    font-family: "Malgun Gothic", "Segoe UI";
+    font-family: $uiFontFamilies;
     font-size: ${uiFontSize}pt;
     selection-background-color: $accent;
     selection-color: white;
@@ -617,7 +618,7 @@ QToolTip {
     border: 1px solid $controlBorder;
     border-radius: 4px;
     padding: 7px 9px;
-    font-family: "Malgun Gothic", "Segoe UI";
+    font-family: $uiFontFamilies;
     font-size: ${smallFontSize}pt;
 }
 """)
@@ -628,6 +629,7 @@ def stylesheet(base_font_size: float = 10.0) -> str:
     size = max(10.0, float(base_font_size))
     return _STYLESHEET.substitute(
         COLORS,
+        uiFontFamilies=ui_font_families(),
         uiFontSize=f"{size:g}",
         smallFontSize=f"{max(9.0, size - 1):g}",
         titleFontSize=f"{size + 1:g}",

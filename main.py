@@ -19,8 +19,9 @@ def main():
     parser.add_argument("--smoke-dir", type=Path, help="Write a widget capture and exit (build verification).")
     parser.add_argument("--smoke-workflow", action="store_true", help="Also run OCR and local translation (build verification).")
     parser.add_argument("--smoke-collection", action="store_true", help="Export every page as PNG/PDF (build verification).")
+    parser.add_argument("--smoke-native", action="store_true", help="Probe bundled OCR and LaMa (build verification).")
     args = parser.parse_args()
-    if (args.smoke_workflow or args.smoke_collection) and not args.smoke_dir:
+    if (args.smoke_workflow or args.smoke_collection or args.smoke_native) and not args.smoke_dir:
         parser.error("Workflow/collection verification requires --smoke-dir")
     def trace(message):
         if args.smoke_dir:
@@ -40,20 +41,23 @@ def main():
     from PySide6.QtCore import Qt, QTimer
     from PySide6.QtGui import QFont, QIcon
     from PySide6.QtWidgets import QApplication
+    from studio.application import StudioApplication
+    from studio.platform_support import default_data_dir, default_font_family
     from studio.window import Editor
     trace("Qt imports completed")
     QApplication.setAttribute(Qt.AA_Use96Dpi)
-    app = QApplication(sys.argv[:1])
+    app = StudioApplication(sys.argv[:1])
     trace("QApplication created")
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setOrganizationName("Translation Studio")
     app.setWindowIcon(QIcon(str(ROOT / 'assets' / 'chipdf.png')))
-    app.setFont(QFont("맑은 고딕", 10))
-    data_dir = args.data_dir or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "TranslationStudio"
+    app.setFont(QFont(default_font_family(), 10))
+    data_dir = args.data_dir or default_data_dir()
     editor = Editor(data_dir, auto_ocr=args.smoke_workflow)
     trace("Editor created")
     editor.show()
+    app.set_editor(editor)
     if args.file:
         if args.smoke_dir:
             editor.load_path(Path(args.file))
@@ -73,6 +77,9 @@ def main():
                     'saved_layout_names': sorted(editor.presets['layouts']),
                 }, ensure_ascii=False, indent=2), 'utf-8')
                 editor.grab().save(str(args.smoke_dir / "window.png"))
+                if args.smoke_native:
+                    from studio.native_probe import verify_native_runtime
+                    verify_native_runtime(args.smoke_dir)
                 if editor.project:
                     editor.export_to(args.smoke_dir / "output.png")
                     if args.smoke_collection:

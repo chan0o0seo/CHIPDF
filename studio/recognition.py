@@ -43,7 +43,7 @@ def model_path():
     root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
     source = root / "ocr-models" if getattr(sys, "frozen", False) else root / "vendor" / "tessdata"
     contents = {name: (source / name).read_bytes() for name in ("jpn.traineddata", "jpn_vert.traineddata")}
-    if str(source).isascii():
+    if sys.platform != 'win32' or str(source).isascii():
         return source
     digest = hashlib.sha256(b"".join(contents.values())).hexdigest()[:16]
     cache = Path(tempfile.gettempdir()) / "TranslationStudio-ocr" / digest
