@@ -1,6 +1,6 @@
 # 치pdf
 
-PDF와 이미지 속 일본어를 인식하고, 한국어로 번역·편집하는 Windows 데스크톱 프로그램입니다.
+PDF와 이미지 속 일본어를 인식하고, 한국어로 번역·편집하는 Windows·macOS 데스크톱 프로그램입니다.
 문서 인식과 번역은 PC에서 처리하며, 원본 페이지 위에서 글자와 그림의 배치를 편집할 수 있습니다.
 소스의 기본 번역 엔진은 Chrome 내장 번역입니다. 번역할 때 Chrome 보조 창에서 준비 버튼을 눌러 연결합니다.
 
@@ -15,9 +15,17 @@ PDF와 이미지 속 일본어를 인식하고, 한국어로 번역·편집하�
 - **최근 작업** — 파일 메뉴의 `최근 작업 열기` 또는 시작 화면의 목록에서 최근 편집한 작업을 선택해 불러옵니다. 자동 저장본을 포함해 최대 12개를 보관하며, 파일 이름과 경로를 함께 표시합니다.
 - **PDF·PNG 출력** — 전체·현재·선택한 페이지를 저장합니다. PDF에는 편집된 페이지 이미지와 내부 페이지 링크가 포함됩니다.
 
-Windows 10 1809 이상·Windows 11의 64비트(x64) 환경을 지원합니다.
+## 다운로드
 
-macOS 15 이상용 Apple Silicon·Intel 빌드 구성은 [macOS 안내](docs/macos.md)를 참고하세요. 맥용 빌드와 검증 결과는 GitHub Actions의 `macOS builds`에서 확인할 수 있습니다. 현재 맥 빌드는 Apple 공증을 받지 않은 시험 배포입니다.
+[0.11.3 정식 릴리스](https://github.com/chan0o0seo/CHIPDF/releases/tag/ver_0.11.3)에서 운영체제에 맞는 파일을 받으세요. 모두 LaMa 사진 복원 모델을 포함합니다.
+
+| 환경 | 파일 |
+| --- | --- |
+| Windows 10 1809 이상·Windows 11, x64 | `ChiPDF-0.11.3-LaMa-Setup.exe` 또는 `ChiPDF-0.11.3-LaMa-Windows.zip` |
+| macOS 15 이상, Apple Silicon(M 시리즈) | `ChiPDF-0.11.3-macOS-arm64-LaMa.zip` |
+| macOS 15 이상, Intel | `ChiPDF-0.11.3-macOS-x86_64-LaMa.zip` |
+
+맥의 두 종류는 CPU가 다릅니다. ` → 이 Mac에 관하여`에서 칩을 확인해 맞는 ZIP을 선택하고, 압축을 푼 `ChiPDF.app`을 응용 프로그램 폴더로 옮기세요. 맥 앱은 Apple 배포 서명·공증을 받지 않아 macOS에서 실행 확인을 요구하거나 차단할 수 있습니다. 자세한 내용은 [macOS 안내](docs/macos.md)를 참고하세요.
 
 ## 0.11.3 편집기 개선
 
@@ -26,7 +34,7 @@ macOS 15 이상용 Apple Silicon·Intel 빌드 구성은 [macOS 안내](docs/mac
 - 배경 복원의 `이전 방식` 이름을 `주변색 보간`으로 바꿨습니다.
 - 작은 창에서도 시작 화면을 스크롤해 최근 작업 목록을 사용할 수 있습니다.
 
-변경 내용과 검증 범위는 [0.11.3 릴리스 노트](docs/releases/0.11.3.md)를 참고하세요.
+변경 내용은 [0.11.3 릴리스 노트](docs/releases/0.11.3.md)를 참고하세요.
 
 ## 글씨 지우기와 사진 복원
 
@@ -50,13 +58,13 @@ LaMa를 포함한 실행 파일은 `python build_portable.py --with-inpaint`로 
 
 ## 소스 및 배포 관리
 
-앱 소스, 테스트, UI 아이콘, 빌드 스크립트와 외부 구성 요소의 라이선스를 이 저장소에서 관리합니다. 설치 파일·ZIP·모델·로컬 작업 데이터는 Git에서 제외하며, 배포 파일은 [GitHub 릴리스](https://github.com/chan0o0seo/CHIPDF/releases)에 첨부합니다. 각 릴리스의 태그는 해당 버전의 소스를 가리킵니다.
+앱 소스(`studio/`, `main.py`), UI 아이콘(`assets/`), 설치·빌드 스크립트, 의존성 목록과 외부 구성 요소의 라이선스를 관리합니다. 테스트·QA·실험용 자료와 내부 보고서는 저장소에서 제외합니다. 설치 파일·ZIP·모델·로컬 작업 데이터는 Git에서 제외하며, 배포 파일은 [GitHub 릴리스](https://github.com/chan0o0seo/CHIPDF/releases)에 첨부합니다. 플랫폼별 배포 소스는 릴리스 노트에 표시하며, 현재 관리 소스는 `main` 브랜치에 있습니다. 외부 구성 요소의 라이선스는 [THIRD_PARTY.md](THIRD_PARTY.md)를 참고하세요.
 
 Windows용 Python 3.12 환경에서 `python -m pip install --target .deps -r requirements-dev.txt`로 개발 의존성을 설치하고 `python prepare_assets.py`로 OCR 자료를 준비한 뒤 `python main.py`로 실행합니다. LaMa를 포함할 때는 위의 추가 런타임·모델 준비 절차를 먼저 실행하세요.
 
 `python build_portable.py --with-inpaint`로 이동식 배포본을 만들고 `python build_installer.py`로 같은 버전의 설치 파일을 만듭니다. `Start Translation Studio.cmd`는 `dist`의 가장 최근 앱 빌드를 실행하므로 저장소에 개인별 빌드 경로를 기록하지 않습니다.
 
-## 0.11.0 경량 배포와 선택 오프라인 팩
+## 선택 오프라인 번역 팩
 
 기본 배포는 약 1.25GB의 M2M100 가중치를 포함하지 않습니다. Chrome 번역을 사용하는 경우 기본 앱만 받으면 됩니다. Chrome 설치와 첫 언어팩 다운로드 용량은 별도입니다. 작은 오프라인 추론 라이브러리는 앱에 남겨 두어, 필요할 때 데이터 팩만 추가할 수 있습니다.
 
@@ -68,7 +76,6 @@ Windows용 Python 3.12 환경에서 `python -m pip install --target .deps -r req
 
 개발용 생성 명령은 `python build_portable.py`(기본 경량판), `python build_model_pack.py`(별도 데이터 팩), `python build_installer.py`(설치 파일)입니다. 예전처럼 모델까지 묶으려면 `python build_portable.py --with-offline-model`을 사용합니다. 기본 자료 준비 명령 `python prepare_assets.py`는 번역 모델을 요구하지 않으며, 모델 출처 자료까지 갱신할 때만 `--offline-model`을 붙입니다.
 
-0.11.0 설치 파일은 약 108MB, 이동식 ZIP은 약 123MB이며 압축을 풀면 약 330MB입니다. 선택 오프라인 팩은 약 1.17GB입니다. 배포 파일은 [GitHub 릴리스](https://github.com/chan0o0seo/CHIPDF/releases)에서 받을 수 있습니다.
 
 ## 번역 사용 방법
 
@@ -84,5 +91,3 @@ Windows용 Python 3.12 환경에서 `python -m pip install --target .deps -r req
 원문·번역 패널에서 원문 출처, 번역 출처, 숫자·용어·반복·일본어 잔존 등의 확인 안내를 제공합니다. 안내가 없더라도 번역 정확성을 보장하지 않습니다.
 
 이 소스는 작업 형식 10으로 저장하며 이전 형식 1~9를 읽습니다. 새로 저장한 형식 10 파일은 이전 실행 파일에서 열리지 않을 수 있으므로 기존 저장본·백업을 보관하세요.
-
-0.11.0 배포 파일은 테스트·앱 실행·표본 번역 없이 빌드했습니다. 번역 품질과 설치·실행 동작에 대한 별도 검증은 수행하지 않았습니다.

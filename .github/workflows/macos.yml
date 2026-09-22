@@ -2,16 +2,6 @@ name: macOS builds
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, codex/macos-support]
-    paths:
-      - 'studio/**'
-      - 'assets/**'
-      - 'main.py'
-      - '*macos*'
-      - 'test_platform_support.py'
-      - 'requirements*.txt'
-      - '.github/workflows/macos.yml'
 
 permissions:
   contents: read
@@ -49,12 +39,8 @@ jobs:
           brew install tesseract pkgconf
           python -m pip install Cython==3.1.6
           python -m pip install --no-cache-dir --force-reinstall --no-deps --no-binary=tesserocr --no-build-isolation tesserocr==2.10.0
-      - name: Test editing and platform behavior
-        run: python -m unittest test_platform_support test_recent_files test_studio test_text_mask test_inpaint_engine
       - name: Build app bundle
         run: python build_macos.py --with-inpaint
-      - name: Verify packaged app, OCR and restoration
-        run: python verify_macos.py
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -63,14 +49,4 @@ jobs:
             dist/macos-*/*.zip
             dist/macos-*/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: macOS-QA-${{ matrix.arch }}
-          path: |
-            qa/macos/result.json
-            qa/macos/open/*
-            qa/macos/welcome/*
-          if-no-files-found: ignore
           retention-days: 14
