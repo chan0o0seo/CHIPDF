@@ -10,15 +10,12 @@ from uuid import uuid4
 import zipfile
 
 from .storage import atomic_write
+from .platform_support import default_data_dir
 from .translation_config import MODEL_DIRECTORY, MODEL_FILES, MODEL_ID, MODEL_REVISION
 
 PACK_FILES = (*MODEL_FILES, "origin.json", "MODEL_CARD.md", "LICENSE.txt")
 PACK_FORMAT = "chipdf-offline-model-1"
 MAX_PACK_BYTES = 2_000_000_000
-
-
-def default_data_dir():
-    return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "TranslationStudio"
 
 
 def origin_for(root):

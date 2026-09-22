@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 import math
 import re
 from uuid import uuid4
+from .platform_support import default_font_family
 
 
 def uid() -> str:
@@ -13,7 +14,7 @@ def uid() -> str:
 
 @dataclass
 class Style:
-    family: str = "맑은 고딕"
+    family: str = field(default_factory=default_font_family)
     size: float = 20.0
     color: str = "#253345"
     bold: bool = False

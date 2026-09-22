@@ -8,4 +8,5 @@ pypdfium2==5.13.0
 pypdf==6.10.0
 reportlab==4.4.9
 charset-normalizer==3.5.1
-tesserocr @ https://github.com/simonflueckiger/tesserocr-windows_build/releases/download/tesserocr-v2.10.0-tesseract-5.5.2/tesserocr-2.10.0-cp312-cp312-win_amd64.whl
+tesserocr @ https://github.com/simonflueckiger/tesserocr-windows_build/releases/download/tesserocr-v2.10.0-tesseract-5.5.2/tesserocr-2.10.0-cp312-cp312-win_amd64.whl ; sys_platform == "win32"
+tesserocr==2.10.0 ; sys_platform != "win32"

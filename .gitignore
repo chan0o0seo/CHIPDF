@@ -1,4 +1,5 @@
 .deps/
+.venv/
 .engine-deps/
 .convert-deps/
 .build/
@@ -29,3 +30,11 @@ latest-*.json
 /TRANSLATION_IMPROVEMENT_PLAN.ko.md
 /TRANSLATION_ABC_IMPLEMENTATION.ko.md
 /LIGHTWEIGHT_RELEASE.ko.md
+
+# Local tests, QA tools and engine experiments
+/test_*.py
+/qa_*.py
+/verify_*.py
+/engine_probe.py
+/requirements-engine.txt
+/studio/native_probe.py

@@ -1,0 +1,52 @@
+name: macOS builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'requirements*.txt'
+      - name: Install native dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: -r requirements-dev.txt -r requirements-inpaint.txt
+      - name: Prepare OCR and LaMa assets
+        run: |
+          python prepare_assets.py
+          python prepare_inpaint.py --download
+      - name: Rebuild Intel OCR against the installed C API
+        if: matrix.arch == 'x86_64'
+        run: |
+          brew install tesseract pkgconf
+          python -m pip install Cython==3.1.6
+          python -m pip install --no-cache-dir --force-reinstall --no-deps --no-binary=tesserocr --no-build-isolation tesserocr==2.10.0
+      - name: Build app bundle
+        run: python build_macos.py --with-inpaint
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: ChiPDF-macOS-${{ matrix.arch }}
+          path: |
+            dist/macos-*/*.zip
+            dist/macos-*/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

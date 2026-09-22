@@ -14,6 +14,7 @@ import sys
 import threading
 
 from PIL import Image
+from .platform_support import default_data_dir
 
 MODEL_FILENAME = "lama_fp32.onnx"
 MODEL_REVISION = "a3ee2fca54baebec351b8fa7786154ffa7555aa6"
@@ -45,8 +46,7 @@ def _model_candidates(model_path=None):
     for folder in roots:
         candidates += [folder / "vendor/models/inpaint" / MODEL_FILENAME,
                        folder / "models/inpaint" / MODEL_FILENAME]
-    user_dir = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local/share"))
-    candidates.append(user_dir / "TranslationStudio/models/inpaint" / MODEL_FILENAME)
+    candidates.append(default_data_dir() / "models/inpaint" / MODEL_FILENAME)
     return candidates
 
 
