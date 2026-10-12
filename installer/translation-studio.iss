@@ -83,7 +83,7 @@ WizardStyle=modern
 DisableWelcomePage=no
 SetupLogging=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=치pdf-{#AppVersion}-Setup
+OutputBaseFilename=chipdf-{#AppVersion}
 #if FileExists(AppSource + "\_internal\assets\chipdf.ico")
 SetupIconFile={#AppSource}\_internal\assets\chipdf.ico
 #endif
@@ -102,6 +102,7 @@ korean.UninstalledAll=치pdf 프로그램을 제거했습니다.%n%n저장한 �
 
 [CustomMessages]
 korean.DesktopShortcut=바탕 화면에 바로 가기 만들기
+korean.CodexSkill=Codex 번역 스킬 설치 (일본어 PDF·코코포리아 룸 ZIP → 한국어)
 korean.LaunchProgram=치pdf 실행
 korean.DataPreserved=저장한 작품과 사용자 데이터는 업데이트하거나 제거해도 유지됩니다.
 korean.DataDirectory=자동 저장·백업·서식 저장 위치:
@@ -117,14 +118,19 @@ korean.InvalidInstallLocation=기존 설치 위치를 확인할 수 없어 업�
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopShortcut}"; Flags: unchecked
+Name: "codexskill"; Description: "{cm:CodexSkill}"
 
 [Files]
 ; All files come from the build wrapper's verified staging directory.
 ; No external files, user data, or project archives are registered for removal.
-Source: "{#AppSource}\*"; DestDir: "{app}"; Excludes: "*.twproj,*.twproj.bak,*.tmp,translation-studio.install.ini"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#AppSource}\*"; DestDir: "{app}"; Excludes: "*.twproj,*.twproj.bak,*.tmp,translation-studio.install.ini,chipdf-install.ini"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Keep this tiny ownership record so reinstall can safely accept a directory
 ; containing projects the user added after installation. No project is adopted.
 Source: "{#AppSource}\translation-studio.install.ini"; DestDir: "{app}"; Flags: ignoreversion uninsneveruninstall
+; Keep the user skill after app removal; copy only the maintained skill files.
+Source: "{#AppSource}\skills\chipdf-ja-ko\*"; DestDir: "{code:GetCodexSkillDir}"; Excludes: "__pycache__\*,*.pyc,chipdf-install.ini,agent-connection.json"; Tasks: codexskill; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
+; Seed a Unicode INI before [INI] writes the recipient's installation path.
+Source: "{#AppSource}\chipdf-install.ini"; DestDir: "{code:GetCodexSkillDir}"; Tasks: codexskill; Flags: ignoreversion uninsneveruninstall
 
 [INI]
 ; This installer-owned identity record also remains after uninstallation.
@@ -132,6 +138,8 @@ Filename: "{app}\translation-studio.install.ini"; Section: "Installation"; Key: 
 Filename: "{app}\translation-studio.install.ini"; Section: "Installation"; Key: "Version"; String: "{#AppVersion}"
 Filename: "{app}\translation-studio.install.ini"; Section: "Installation"; Key: "BuildId"; String: "{#BuildId}"
 Filename: "{app}\translation-studio.install.ini"; Section: "Installation"; Key: "MutexName"; String: "{#InstallerMutex}"
+; This local connection is generated on the recipient's PC, never bundled.
+Filename: "{code:GetCodexSkillDir}\chipdf-install.ini"; Section: "ChiPDF"; Key: "Executable"; String: "{app}\Translation Studio.exe"; Tasks: codexskill
 
 [Icons]
 Name: "{group}\{#InstallerShortcut}"; Filename: "{app}\Translation Studio.exe"; WorkingDir: "{app}"; AppUserModelID: "{#InstallerMutex}"
@@ -141,6 +149,26 @@ Name: "{autodesktop}\{#InstallerShortcut}"; Filename: "{app}\Translation Studio.
 Filename: "{app}\Translation Studio.exe"; Description: "{cm:LaunchProgram}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function GetCodexSkillDir(Param: String): String;
+var
+  CodexHome: String;
+begin
+  CodexHome := Trim(GetEnv('CODEX_HOME'));
+  if CodexHome = '' then begin
+    CodexHome := Trim(GetEnv('USERPROFILE'));
+    if CodexHome = '' then
+      RaiseException('Windows USERPROFILE is missing.');
+    CodexHome := AddBackslash(CodexHome) + '.codex';
+  end;
+  Log('Resolved Codex home: ' + CodexHome);
+#ifdef QAAppId
+  { Resolve the production path above, but isolate QA file writes. }
+  Result := ExpandConstant('{app}\codex-test\skills\chipdf-ja-ko');
+#else
+  Result := AddBackslash(CodexHome) + 'skills\chipdf-ja-ko';
+#endif
+end;
+
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#InstallerAppId}_is1';
   MarkerName = 'translation-studio.install.ini';

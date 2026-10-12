@@ -106,6 +106,8 @@ PyInstaller.__main__.run([
 app_dir = dist / "Translation Studio"
 shutil.copy2(ROOT / "README.md", app_dir / "README.ko.md")
 shutil.copy2(ROOT / "THIRD_PARTY.md", app_dir / "THIRD_PARTY.md")
+shutil.copytree(ROOT / 'skills' / 'chipdf-ja-ko', app_dir / 'skills' / 'chipdf-ja-ko',
+                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
 licenses = app_dir / "licenses"
 licenses.mkdir()
 shutil.copytree(ROOT / "vendor" / "notices", licenses / "models-and-native")
@@ -127,6 +129,7 @@ if python_license.exists():
     'version': __version__, 'build_id': build_id,
     'edition': 'offline-bundled' if args.with_offline_model else 'light',
     'default_translation_engine': 'chrome',
+    'automation_protocol': 'chipdf-ja-ko/1',
     'translation_model': model_origin,
     'inpaint_model': inpaint_metadata,
     'exe_sha256': hashlib.sha256((app_dir / 'Translation Studio.exe').read_bytes()).hexdigest(),

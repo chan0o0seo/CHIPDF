@@ -48,6 +48,8 @@ def main():
     shutil.copy2(ROOT / 'README.md', resources / 'README.ko.md')
     shutil.copy2(ROOT / 'THIRD_PARTY.md', resources / 'THIRD_PARTY.md')
     shutil.copytree(ROOT / 'docs', resources / 'docs')
+    shutil.copytree(ROOT / 'skills/chipdf-ja-ko', resources / 'skills/chipdf-ja-ko',
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     licenses = resources / 'licenses'
     shutil.copytree(ROOT / 'vendor/notices', licenses / 'models-and-native')
     if arch == 'x86_64':
@@ -80,6 +82,7 @@ def main():
     if python_license.is_file():
         shutil.copy2(python_license, licenses / 'Python-LICENSE.txt')
     metadata = {'version': __version__, 'build_id': build_id, 'platform': 'macos',
+                'automation_protocol': 'chipdf-ja-ko/1',
                 'architecture': arch, 'minimum_macos': '15.0',
                 'signing': 'ad-hoc; not notarized', 'inpaint_model': model}
     (resources / 'release.json').write_text(json.dumps(metadata, indent=2), 'utf-8')

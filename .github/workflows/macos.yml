@@ -50,3 +50,22 @@ jobs:
             dist/macos-*/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
+
+  package:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ChiPDF-macOS-*
+          path: macos-artifacts
+      - name: Package both architectures as one download
+        run: python3 package_macos.py --artifacts macos-artifacts --output release-macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chipdf-macos
+          path: release-macos/chipdf-*.zip
+          if-no-files-found: error
+          retention-days: 14

@@ -54,6 +54,27 @@ def build(app_source, version, qa_token=None):
     stage = ROOT / '.build' / build_id / 'payload'
     output.mkdir(parents=True)
     shutil.copytree(app_source, stage)
+    # The engine release stays immutable. Snapshot the maintained skill into
+    # this installer so skill-only updates do not require rebuilding Qt/OCR.
+    skill_source = ROOT / 'skills' / 'chipdf-ja-ko'
+    skill_target = stage / 'skills' / 'chipdf-ja-ko'
+    if not (skill_source / 'SKILL.md').is_file() or not (skill_source / 'scripts/chipdf_agent.py').is_file():
+        raise ValueError('배포할 ChiPDF 스킬이 없습니다.')
+    for path in skill_source.rglob('*'):
+        if path.is_symlink() or path.is_junction() or not path.resolve().is_relative_to(skill_source.resolve()):
+            raise ValueError('연결된 파일·폴더를 스킬에 포함할 수 없습니다.')
+        if path.name in {'chipdf-install.ini', 'agent-connection.json'}:
+            raise ValueError('개인 실행 경로를 배포용 스킬에 포함할 수 없습니다.')
+    if skill_target.exists():
+        if not skill_target.resolve().is_relative_to(stage.resolve()):
+            raise ValueError('스킬 배포 경로가 설치 준비 폴더 밖에 있습니다.')
+        shutil.rmtree(skill_target)
+    shutil.copytree(skill_source, skill_target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    skill_files = {str(path.relative_to(skill_target)).replace('\\', '/'): sha256_file(path)
+                   for path in sorted(skill_target.rglob('*')) if path.is_file()}
+    # Win32 INI writes default to the system ANSI codepage unless the file
+    # already has a UTF-16 BOM. Preserve arbitrary Korean/Japanese app paths.
+    (stage / 'chipdf-install.ini').write_text('[ChiPDF]\n', encoding='utf-16')
     (stage / 'translation-studio.install.ini').write_text('', 'ascii')
     notice = stage / 'licenses' / 'Inno-Setup-LICENSE.txt'
     notice.parent.mkdir(parents=True, exist_ok=True)
@@ -71,14 +92,15 @@ def build(app_source, version, qa_token=None):
     with log_path.open('wb') as stream:
         subprocess.run(command, check=True, stdout=stream, stderr=subprocess.STDOUT,
                        creationflags=subprocess.CREATE_NO_WINDOW, timeout=900)
-    installer = output / f'치pdf-{version}-Setup.exe'
+    installer = output / f'chipdf-{version}.exe'
     sha256 = sha256_file(installer)
     info = {'installer': str(installer), 'sha256': sha256, 'qa': bool(qa_token),
             'version': version, 'app_id': app_id, 'group_name': group, 'mutex_name': mutex,
             'uninstall_key': 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + app_id + '_is1',
             'build_id': build_id, 'source_release': str(app_source),
             'source_exe_sha256': sha256_file(app_source / 'Translation Studio.exe'),
-            'compiler_version': COMPILER_VERSION, 'bytes': installer.stat().st_size}
+            'compiler_version': COMPILER_VERSION, 'bytes': installer.stat().st_size,
+            'skill_files': skill_files}
     metadata = output / ('installer-qa.json' if qa_token else 'installer.json')
     metadata.write_text(json.dumps(info, ensure_ascii=False, indent=2), 'utf-8')
     (output / 'SHA256SUMS.txt').write_text(sha256 + '  ' + installer.name + '\n', 'utf-8')

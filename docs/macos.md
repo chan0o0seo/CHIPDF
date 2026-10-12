@@ -1,8 +1,10 @@
 # macOS 빌드 및 실행
 
-macOS 15 이상을 대상으로 Apple Silicon(`arm64`)과 Intel(`x86_64`)용 앱을 별도로 빌드합니다. ` → 이 Mac에 관하여`에서 칩 종류를 확인하세요. 앱은 [0.11.3 정식 릴리스](https://github.com/chan0o0seo/CHIPDF/releases/tag/ver_0.11.3)에서 받으세요.
+macOS 15 이상을 대상으로 Apple Silicon(`arm64`)과 Intel(`x86_64`)용 앱을 빌드하고 하나의 ZIP으로 배포합니다. [0.12.0 정식 릴리스](https://github.com/chan0o0seo/CHIPDF/releases/tag/ver_0.12.0)의 `chipdf-0.12.0.zip`을 받으세요.
 
-Windows EXE는 맥에서 직접 실행할 수 없습니다. 맥용 ZIP을 모두 풀어 `ChiPDF.app`을 응용 프로그램 폴더로 옮겨 실행하세요. 작업 파일 형식은 Windows와 같지만, 다른 운영체제에 없는 글꼴은 대체 글꼴로 표시되어 줄바꿈이 달라질 수 있습니다.
+ZIP을 모두 풀고 ` → 이 Mac에 관하여`에서 칩/프로세서를 확인합니다. M 시리즈이면 `Apple-Silicon`, Intel이면 `Intel` 폴더의 `ChiPDF.app`을 응용 프로그램 폴더로 옮겨 실행하세요. ZIP의 `설치 안내.txt`에도 사용 방법이 들어 있습니다. 작업 파일 형식은 Windows와 같지만, 다른 운영체제에 없는 글꼴은 대체 글꼴로 표시되어 줄바꿈이 달라질 수 있습니다.
+
+앱이 차단되면 한 번 실행을 시도한 뒤, 신뢰하는 배포본인지 확인하고 **시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기**로 실행을 확인합니다. [Apple의 안내](https://support.apple.com/102445)를 참고하세요.
 
 ## 개발 환경
 
@@ -35,7 +37,7 @@ python build_macos.py --with-inpaint
 
 `dist/macos-*/`에 `.app`, CPU 종류별 ZIP, SHA256 목록을 만듭니다. LaMa 모델과 OCR·PDF 실행 라이브러리를 포함합니다.
 
-GitHub Actions의 `macOS builds`를 수동 실행하면 두 CPU용 ZIP을 빌드해 작업 아티팩트로 제공합니다. 테스트·QA 작업은 실행하지 않습니다.
+GitHub Actions의 `macOS builds`를 수동 실행하면 두 CPU용 앱을 빌드한 뒤 `package_macos.py`가 `chipdf-0.12.0.zip` 하나로 묶습니다. 최종 다운로드는 `chipdf-macos` 작업 아티팩트입니다. 앱 버전·아키텍처·코드 서명과 파일 구성만 확인하며 테스트·QA 작업은 실행하지 않습니다.
 
 현재 배포 앱은 **임시 서명(ad-hoc)이며 Apple 배포 서명·공증을 받지 않았습니다**. 다운로드한 앱은 macOS에서 실행 확인을 요구하거나 차단할 수 있습니다. Apple Developer 인증서와 공증 자격 증명은 별도로 설정해야 합니다.
 

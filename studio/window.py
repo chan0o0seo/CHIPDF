@@ -23,6 +23,7 @@ from .model import GroupBox
 from .layout_tools import LayoutTools, move_in_scene
 from .collection import Collection
 from .document_io import import_files
+from .file_drop import dropped_paths
 from .presets import Presets
 from .font_favorites import FontFavorites
 from .recent_files import RecentFiles
@@ -84,6 +85,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.save_timer.setInterval(850)
         self.save_timer.timeout.connect(self.autosave)
         self.setWindowTitle(APP_NAME)
+        self.setAcceptDrops(True)
         self.resize(1440, 900)
         self.setMinimumSize(900, 600)
         self.scene = CardScene(self)
@@ -602,6 +604,23 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
 
     def choose_open(self):
         self.choose_sources()
+
+    def dragEnterEvent(self, event):
+        if not self.io_job and dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        paths = dropped_paths(event.mimeData()) if not self.io_job else []
+        if paths:
+            event.acceptProposedAction()
+            self.open_sources(paths)
+        else:
+            event.ignore()
 
     def open_path(self, path):
         self.open_sources([path])

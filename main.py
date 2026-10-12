@@ -11,6 +11,10 @@ if not getattr(sys, "frozen", False):
 def main():
     import argparse
 
+    if sys.argv[1:2] == ['--agent']:
+        from studio.agent_cli import main as agent_main
+        return agent_main(sys.argv[2:])
+
     from studio import APP_NAME
     parser = argparse.ArgumentParser(description=APP_NAME)
     parser.add_argument("file", nargs="?")

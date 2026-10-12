@@ -10,6 +10,7 @@ from . import richtext
 from .object_items import BoxInteraction, VisualItem, GroupItem
 from .vertical_editing import VerticalEditing
 from .stamp_tool import CloneStamp
+from .file_drop import dropped_paths
 
 
 class CardScene(QGraphicsScene):
@@ -495,8 +496,10 @@ class Canvas(CloneStamp, QGraphicsView):
             super().keyPressEvent(event)
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls() and all(url.isLocalFile() for url in event.mimeData().urls()):
+        if not self.editor.io_job and dropped_paths(event.mimeData()):
             event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def contextMenuEvent(self, event):
         if self.tool != "select":
@@ -507,11 +510,12 @@ class Canvas(CloneStamp, QGraphicsView):
             self.editor.object_context_menu(event.globalPos())
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+        self.dragEnterEvent(event)
 
     def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls and all(url.isLocalFile() for url in urls):
-            self.files_dropped.emit([url.toLocalFile() for url in urls])
+        paths = dropped_paths(event.mimeData()) if not self.editor.io_job else []
+        if paths:
             event.acceptProposedAction()
+            self.files_dropped.emit(paths)
+        else:
+            event.ignore()

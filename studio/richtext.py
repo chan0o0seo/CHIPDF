@@ -11,6 +11,8 @@ def char_format(style: Style) -> QTextCharFormat:
     fmt = QTextCharFormat()
     fmt.setFontFamilies([style.family])
     fmt.setFontPointSize(style.size)
+    # Avoid missing Hangul strokes in Qt's hinted Malgun Gothic rendering.
+    fmt.setFontHintingPreference(QFont.PreferNoHinting)
     fmt.setForeground(QColor(style.color))
     fmt.setFontWeight(QFont.Bold if style.bold else QFont.Normal)
     fmt.setFontItalic(style.italic)
