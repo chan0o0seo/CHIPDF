@@ -4,17 +4,17 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QItemSelectionModel, QSize, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDialog, QDialogButtonBox,
                               QFileDialog, QFormLayout, QFrame, QLabel, QListView, QListWidgetItem,
-                              QProgressDialog, QVBoxLayout)
+                              QInputDialog, QMenu, QProgressDialog, QVBoxLayout)
 
 from .document_io import Cancelled, export_collection, folder_images, import_files, render_page
 from .jobs import Job
 from .model import Project
 from .storage import atomic_write, validate_asset_sizes
-from .ui.page_list import PAGE_NAME_ROLE, PAGE_NUMBER_ROLE, PageThumbnailDelegate
+from .ui.page_list import PAGE_ID_ROLE, PAGE_NAME_ROLE, PAGE_NUMBER_ROLE, PageThumbnailDelegate
 from . import APP_NAME
 
 
@@ -45,6 +45,12 @@ class Collection:
         self.card_list.setItemDelegate(PageThumbnailDelegate(self.card_list))
         self.card_list.setAccessibleName('문서 페이지 목록')
         self.card_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.card_list.setDragDropMode(QAbstractItemView.DragDrop)
+        self.card_list.setDefaultDropAction(Qt.MoveAction)
+        self.card_list.setDropIndicatorShown(True)
+        self.card_list.pagesDropped.connect(self.move_pages)
+        self.card_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.card_list.customContextMenuRequested.connect(self.page_context_menu)
         self.card_list.currentRowChanged.connect(self.switch_page)
         self.folder_action = self.action('이미지 폴더 열기…', self.choose_folder)
         self.append_action = self.action('자료 추가…', lambda: self.choose_sources(append=True))
@@ -52,6 +58,81 @@ class Collection:
         self.file_menu.insertAction(self.save_action, self.append_action)
         self.action('다음 카드', lambda: self.switch_page(self.page_index+1), 'Ctrl+PgDown')
         self.action('이전 카드', lambda: self.switch_page(self.page_index-1), 'Ctrl+PgUp')
+
+    def page_context_menu(self, point):
+        if not self.project or self.io_job:
+            return
+        item = self.card_list.itemAt(point)
+        if item is None:
+            return
+        if not item.isSelected():
+            self.card_list.setCurrentItem(item)
+        ids = {item.data(PAGE_ID_ROLE) for item in self.card_list.selectedItems()}
+        rows = [i for i, page in enumerate(self.project.pages) if page.id in ids]
+        if not rows:
+            return
+        menu = QMenu(self)
+        earlier = menu.addAction('앞으로 한 페이지 이동')
+        earlier.setEnabled(rows[0] > 0)
+        later = menu.addAction('뒤로 한 페이지 이동')
+        later.setEnabled(rows[-1] < len(self.project.pages)-1)
+        position = menu.addAction('지정 위치로 이동…')
+        chosen = menu.exec(self.card_list.viewport().mapToGlobal(point))
+        if chosen is earlier:
+            self.move_page_step(ids, -1)
+        elif chosen is later:
+            self.move_page_step(ids, 1)
+        elif chosen is position:
+            target, accepted = QInputDialog.getInt(self, '페이지 순서 변경',
+                '선택한 페이지 묶음의 새 시작 번호', rows[0]+1, 1, len(self.project.pages)-len(ids)+1)
+            if accepted:
+                remaining = [page for page in self.project.pages if page.id not in ids]
+                moving = [page for page in self.project.pages if page.id in ids]
+                ordered = remaining[:target-1] + moving + remaining[target-1:]
+                self.reorder_pages([page.id for page in ordered], ids)
+
+    def move_page_step(self, ids, direction):
+        if not self.project or self.io_job or direction not in (-1, 1):
+            return
+        order = [page.id for page in self.project.pages]
+        indices = range(1, len(order)) if direction == -1 else range(len(order)-2, -1, -1)
+        for index in indices:
+            neighbor = index+direction
+            if order[index] in ids and order[neighbor] not in ids:
+                order[index], order[neighbor] = order[neighbor], order[index]
+        self.reorder_pages(order, ids)
+
+    def move_pages(self, ids, destination):
+        if not self.project or self.io_job:
+            return
+        pages = self.project.pages
+        ids = set(ids)
+        if not ids or not ids <= {page.id for page in pages} or not 0 <= destination <= len(pages):
+            return
+        moving = [page for page in pages if page.id in ids]
+        remaining = [page for page in pages if page.id not in ids]
+        insertion = sum(page.id not in ids for page in pages[:destination])
+        ordered = remaining[:insertion] + moving + remaining[insertion:]
+        self.reorder_pages([page.id for page in ordered], ids)
+
+    def reorder_pages(self, order, selected_ids=()):
+        if not self.project or self.io_job:
+            return
+        old_order = [page.id for page in self.project.pages]
+        if order == old_order or len(order) != len(old_order) or set(order) != set(old_order):
+            return
+        self.finish_edit()
+        self.sync_positions()
+        active_id = self.current_page.id
+        self.begin_operation()
+        self.invalidate_jobs()
+        pages = {page.id: page for page in self.project.pages}
+        self.project.pages = [pages[key] for key in order]
+        self.page_index = order.index(active_id)
+        self.refresh_card_list(selected_ids)
+        self.setWindowTitle(f'{self.project.name} · {self.page_index+1}/{len(order)} — {APP_NAME}')
+        self.finish_operation('페이지 순서 변경')
+        self.queue_current_ocr()
 
     def choose_folder(self):
         path = QFileDialog.getExistingDirectory(self, '이미지 폴더 열기')
@@ -193,19 +274,24 @@ class Collection:
         self.status.setText(f'{index+1}/{len(self.project.pages)} · {self.current_page.name}')
         self.queue_current_ocr()
 
-    def refresh_card_list(self):
+    def refresh_card_list(self, selected_ids=None):
         self.card_list.blockSignals(True)
         self.card_list.clear()
         for index, page in enumerate(self.project.pages):
             entry = QListWidgetItem(f'{index+1}. {page.name}')
             entry.setData(PAGE_NUMBER_ROLE, index+1)
             entry.setData(PAGE_NAME_ROLE, page.name)
+            entry.setData(PAGE_ID_ROLE, page.id)
+            entry.setFlags(entry.flags() & ~Qt.ItemIsDropEnabled)
             entry.setData(Qt.AccessibleDescriptionRole, f'{index+1}페이지 · {page.name}')
             entry.setTextAlignment(Qt.AlignHCenter)
             entry.setToolTip(f'{index+1}페이지 · {page.name}')
             entry.setSizeHint(QSize(164, 178))
             self.card_list.addItem(entry)
-        self.card_list.setCurrentRow(self.page_index)
+        self.card_list.setCurrentRow(self.page_index, QItemSelectionModel.NoUpdate)
+        selected_ids = {self.current_page.id} if selected_ids is None else set(selected_ids)
+        for index, page in enumerate(self.project.pages):
+            self.card_list.item(index).setSelected(page.id in selected_ids)
         self.card_list.blockSignals(False)
         self.update_thumbnail(self.page_index, edited=True)
         self.thumbnail_queue = [i for i in range(len(self.project.pages)) if i != self.page_index]

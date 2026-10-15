@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QFont, QTextCharFormat
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFontComboBox,
-                              QFormLayout, QHBoxLayout, QLabel, QPushButton,
+                              QFormLayout, QGridLayout, QHBoxLayout, QLabel, QPushButton,
                               QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
                               QToolButton, QVBoxLayout, QWidget)
 
@@ -167,6 +167,7 @@ class Inspector:
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         form.setSpacing(8)
         return form
 
@@ -193,12 +194,12 @@ class Inspector:
         self.inspector_size.userValueChanged.connect(self.format_size)
         form.addRow("크기", self.inspector_size)
         text_layout.addLayout(form)
-        flags = QHBoxLayout()
+        flags = QGridLayout()
         flags.setSpacing(4)
-        for name in ("bold_action", "italic_action", "underline_action", "strike_action"):
+        for index, name in enumerate(("bold_action", "italic_action", "underline_action", "strike_action")):
             action = getattr(self, name, None)
             if action:
-                flags.addWidget(action_button(action, page))
+                flags.addWidget(action_button(action, page), index // 2, index % 2)
         text_layout.addLayout(flags)
         color = QPushButton("글자색 선택…")
         color.clicked.connect(self.choose_color)
@@ -208,6 +209,13 @@ class Inspector:
         self.inspector_align.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
         self.inspector_align.activated.connect(self.format_alignment)
         text_layout.addWidget(self.inspector_align)
+        self.inspector_vertical_align = QComboBox()
+        self.inspector_vertical_align.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        self.inspector_vertical_align.setAccessibleName("상자 안 글자 세로 정렬")
+        self.inspector_vertical_align.setPlaceholderText("혼합")
+        self.inspector_vertical_align.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
+        self.inspector_vertical_align.activated.connect(self.format_vertical_alignment)
+        text_layout.addWidget(self.inspector_vertical_align)
         form = self._inspector_form()
         self.inspector_paragraph = {}
         for key, label, lower, upper, step, suffix in (
@@ -379,6 +387,11 @@ class Inspector:
                                 (self.inspector_image_controls, all_image)):
             widget.setVisible(visible)
             widget.setEnabled(mutable)
+        values = {obj.vertical_align for obj in objects} if all_text else set()
+        for field in (self.inspector_vertical_align, self.vertical_align_box):
+            with quiet(field):
+                field.setCurrentIndex(["top", "center", "bottom"].index(next(iter(values))) if len(values) == 1 else -1)
+            field.setEnabled(mutable and all_text and all(obj.writing_mode == "horizontal" for obj in objects))
         if all_text:
             styles = [run.style for obj in objects for paragraph in obj.paragraphs for run in paragraph.runs]
             families = {style.family for style in styles}

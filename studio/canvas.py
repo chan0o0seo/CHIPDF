@@ -88,6 +88,41 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         # control bounds, even when our shape() covers the full card box.
         return self.shape().contains(point)
 
+    def text_offset(self):
+        if self.is_vertical:
+            return 0.0
+        spare = max(0.0, self.model.height - self.document().size().height())
+        return spare / 2 if self.model.vertical_align == 'center' else spare if self.model.vertical_align == 'bottom' else 0.0
+
+    def _text_mouse_event(self, handler, event, double_click=False):
+        # Qt keeps ownership of selection and IME. Match its mouse coordinates
+        # to the translated document without moving the box or its handles.
+        point = event.pos()
+        if not self.is_vertical and (self.editing or double_click):
+            event.setPos(point - QPointF(0, self.text_offset()))
+        try:
+            handler(event)
+        finally:
+            event.setPos(point)
+
+    def mousePressEvent(self, event):
+        self._text_mouse_event(super().mousePressEvent, event)
+
+    def mouseMoveEvent(self, event):
+        self._text_mouse_event(super().mouseMoveEvent, event)
+
+    def mouseReleaseEvent(self, event):
+        self._text_mouse_event(super().mouseReleaseEvent, event)
+
+    def mouseDoubleClickEvent(self, event):
+        self._text_mouse_event(super().mouseDoubleClickEvent, event, double_click=True)
+
+    def inputMethodQuery(self, query):
+        result = super().inputMethodQuery(query)
+        if not self.is_vertical and query in (Qt.ImCursorRectangle, Qt.ImAnchorRectangle) and isinstance(result, QRectF):
+            return result.translated(0, self.text_offset())
+        return result
+
 
     def paint(self, painter, option, widget=None):
         box = QRectF(0, 0, self.model.width, self.model.height)
@@ -100,6 +135,7 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         if self.is_vertical:
             self.paint_vertical(painter)
         else:
+            painter.translate(0, self.text_offset())
             super().paint(painter, option, widget)
         painter.restore()
         self.paint_controls(painter, self.has_overflow())

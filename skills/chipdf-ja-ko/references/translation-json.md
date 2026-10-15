@@ -16,7 +16,8 @@ UTF-8 JSON을 사용한다. `sources.json`은 문맥과 이미지 경로를 포�
         "font_size": 18,
         "font_family": "맑은 고딕",
         "align": "left",
-        "writing_mode": "horizontal"
+        "writing_mode": "horizontal",
+        "vertical_align": "center"
       }
     }
   ]
@@ -25,7 +26,7 @@ UTF-8 JSON을 사용한다. `sources.json`은 문맥과 이미지 경로를 포�
 
 `layout`은 생략 가능하다. `rect`는 페이지 PNG 기준 픽셀 좌표 `[x, y, width, height]`이며 너비·높이는 각각 24 이상이어야 한다. 이는 번역 상자의 좌표이며 원문 지우기 영역은 바뀌지 않는다. `align`은 `left`, `center`, `right`, `writing_mode`는 `horizontal`, `vertical-rl`이다. 글꼴은 해당 PC에 설치된 한국어 지원 글꼴을 사용한다. 자동 맞춤을 끄고 지정한 글자 크기를 유지하려면 apply에 `--no-fit`을 사용한다.
 
-`align: "center"`는 상자 내부의 가로 정렬이다. 디자인 영역의 중앙이나 세로 중앙을 자동으로 맞추지는 않는다. `font_size`가 원문과 같아도 실제 글자 높이는 다를 수 있다. [layout-matching.md](layout-matching.md)에 따라 미리보기에서 크기·상자 위치·실제 획 중심을 보정한다. `vertical_align`, `offset_x`, `offset_y`, `tracking` 등 지원하지 않는 필드를 추가하지 말고 지원되는 `rect`·크기·정렬 또는 편집기를 사용한다.
+`align: "center"`는 상자 내부의 문단 정렬이다(가로쓰기에서는 가로 가운데). ChiPDF 0.12.1부터 `vertical_align`은 `top`·`center`·`bottom`을 지원하며 가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 배치한다. 생략하면 기존 값을 유지하고 새 상자는 `top`이다. 세로쓰기는 기존 `align`으로 위·가운데·아래 정렬을 선택한다. `font_size`가 원문과 같아도 실제 글자 높이는 다를 수 있다. [layout-matching.md](layout-matching.md)에 따라 미리보기에서 크기·상자 위치·실제 획 중심을 보정한다. `offset_x`, `offset_y`, `tracking` 등 지원하지 않는 필드를 추가하지 말고 지원되는 `rect`·크기·정렬 또는 편집기를 사용한다.
 
 적용할 항목만 `entries`에 넣는다. 빈 target은 거절된다. 중복/존재하지 않는 ID, 다른 프로젝트, 바뀐 원문 해시도 거절된다. 부분 적용 후에는 출력 `.twproj`를 다음 apply 입력으로 사용한다. 원문을 고치지 않았다면 기존 ID와 해시는 유지된다. 수정할 항목은 다음 JSON에 다시 넣을 수 있다.
 

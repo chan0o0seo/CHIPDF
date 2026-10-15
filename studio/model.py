@@ -83,6 +83,7 @@ class TextBox(ObjectBox):
     kind: str = "text"
     margin: float = 8.0
     writing_mode: str = "horizontal"
+    vertical_align: str = "top"
     paragraphs: list[Paragraph] = field(default_factory=lambda: [Paragraph([Run("번역문을 입력하세요")])])
     # These stay independent when the output box is moved or resized.
     source_text: str = ""
@@ -145,7 +146,7 @@ class Page:
 class Project:
     id: str = field(default_factory=uid)
     name: str = "새 작업"
-    version: int = 10
+    version: int = 11
     pages: list[Page] = field(default_factory=lambda: [Page()])
     translation_engine: str = "chrome"
     glossary: list[dict] = field(default_factory=list)
@@ -156,7 +157,7 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict) -> Project:
-        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
             raise ValueError("지원하지 않는 프로젝트 버전입니다.")
         from .translation_quality import validate_translation_data
         validate_translation_data(data.get("translation_engine", "chrome"),
@@ -324,6 +325,8 @@ class Project:
                         raise ValueError("원문 제거 설정이 올바르지 않습니다.")
                 if obj.get("writing_mode", "horizontal") not in ("horizontal", "vertical-rl"):
                     raise ValueError("글쓰기 방향이 올바르지 않습니다.")
+                if obj.get("vertical_align", "top") not in ("top", "center", "bottom"):
+                    raise ValueError("상자 안 세로 정렬이 올바르지 않습니다.")
                 margin = obj.get("margin", 8)
                 if not isinstance(margin, (int, float)) or not math.isfinite(margin) or not 0 <= margin <= 200:
                     raise ValueError("안쪽 여백이 올바르지 않습니다.")
@@ -380,7 +383,7 @@ class Project:
             for obj in page.objects:
                 if isinstance(obj, TextBox) and obj.link_mode == 'page' and obj.link_page_id not in page_ids:
                     raise ValueError('텍스트 링크 대상 페이지가 없습니다.')
-        return cls(id=data["id"], name=data["name"], version=10, pages=pages,
+        return cls(id=data["id"], name=data["name"], version=11, pages=pages,
                    translation_engine=data.get("translation_engine", "chrome"),
                    glossary=[dict(row, forbidden=list(row["forbidden"])) for row in data.get("glossary", [])],
                    translation_memory=[dict(row) for row in data.get("translation_memory", [])])

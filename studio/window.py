@@ -30,6 +30,7 @@ from .recent_files import RecentFiles
 from .link_tools import LinkTools
 from .ui.ribbon import OfficeRibbon
 from .ui.theme import apply_theme
+from .ui.page_list import PageList
 from . import APP_NAME, __version__
 
 
@@ -188,6 +189,14 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.align_box.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
         self.align_box.activated.connect(self.format_alignment)
         self.format_bar.addWidget(self.align_box)
+        self.vertical_align_box = QComboBox()
+        self.vertical_align_box.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        self.vertical_align_box.setAccessibleName("상자 안 글자 세로 정렬")
+        self.vertical_align_box.setPlaceholderText("글자 세로 정렬")
+        self.vertical_align_box.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
+        self.vertical_align_box.setMinimumWidth(0)
+        self.vertical_align_box.activated.connect(self.format_vertical_alignment)
+        self.format_bar.addWidget(self.vertical_align_box)
         self.fill_action = self.action("흰 배경", self.toggle_fill, checkable=True)
         self.fill_action.setToolTip("선택한 상자에 흰 배경을 넣습니다. 원본은 보존됩니다.")
         self.format_bar.addAction(self.fill_action)
@@ -209,13 +218,13 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         label.setProperty("role", "groupTitle")
         label.setContentsMargins(8, 4, 8, 8)
         side.addWidget(label)
-        self.card_list = QListWidget()
+        self.card_list = PageList()
         self.card_list.setIconSize(QSize(140, 150))
         self.card_list.setViewMode(QListWidget.IconMode)
         self.card_list.setResizeMode(QListWidget.Adjust)
         self.card_list.setMovement(QListWidget.Static)
         side.addWidget(self.card_list)
-        sidebar_note = QLabel("Ctrl / Shift로 여러 페이지 선택")
+        sidebar_note = QLabel("끌어서 순서 변경 · 우클릭으로 이동\nCtrl / Shift로 여러 페이지 선택")
         sidebar_note.setWordWrap(True)
         sidebar_note.setProperty("role", "secondary")
         sidebar_note.setContentsMargins(6, 6, 6, 6)

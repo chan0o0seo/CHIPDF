@@ -269,6 +269,13 @@ class LayoutTools:
             move_in_scene(item, QPointF(*deltas))
         self.scene.update()
 
+    def format_vertical_alignment(self, index):
+        items = self.mutable_selection()
+        if index not in (0, 1, 2) or not items or any(
+                not isinstance(item.model, TextBox) or item.model.writing_mode != 'horizontal' for item in items):
+            return
+        self.set_property('vertical_align', ['top', 'center', 'bottom'][index], '상자 안 세로 정렬')
+
     def paragraph_dialog(self):
         self.finish_edit()
         items = self.mutable_selection()

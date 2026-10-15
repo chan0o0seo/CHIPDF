@@ -270,7 +270,7 @@ def apply(args):
             raise ValueError(f'Locked/grouped source box requires editor review: {key}')
         style = deepcopy(obj.paragraphs[0].runs[0].style)
         layout = row.get('layout', {})
-        if not isinstance(layout, dict) or set(layout) - {'rect', 'font_size', 'font_family', 'align', 'writing_mode'}:
+        if not isinstance(layout, dict) or set(layout) - {'rect', 'font_size', 'font_family', 'align', 'writing_mode', 'vertical_align'}:
             raise ValueError(f'Unsupported layout fields for {key}')
         if 'rect' in layout:
             rect = layout['rect']
@@ -286,9 +286,11 @@ def apply(args):
             style.family = layout['font_family']
         if 'writing_mode' in layout:
             obj.writing_mode = layout['writing_mode']
+        if 'vertical_align' in layout:
+            obj.vertical_align = layout['vertical_align']
         align = layout.get('align', obj.paragraphs[0].align)
         obj.paragraphs = [Paragraph([Run(line, deepcopy(style))], align=align) for line in target.split('\n')]
-        # Keep version 10 compatible: externally supplied GPT text is manual text,
+        # Externally supplied GPT text is manual text,
         # while its provider is recorded in the companion JSON, not an invented engine enum.
         obj.target_origin = 'manual'
         obj.translation_engine = ''

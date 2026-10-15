@@ -1,11 +1,51 @@
 """Page thumbnails with selection decoration outside the document image."""
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QDrag, QFont, QIcon, QPainter, QPen
+from PySide6.QtWidgets import QListWidget, QStyle, QStyledItemDelegate
 
 
 PAGE_NUMBER_ROLE = Qt.UserRole + 1
 PAGE_NAME_ROLE = Qt.UserRole + 2
+PAGE_ID_ROLE = Qt.UserRole + 3
+
+
+class PageList(QListWidget):
+    pagesDropped = Signal(list, int)
+
+    def startDrag(self, supported_actions):
+        if not self.selectedItems():
+            return
+        drag = QDrag(self)
+        drag.setMimeData(self.mimeData(self.selectedItems()))
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self.setState(self.State.NoState)
+            self.viewport().update()
+
+    def dragEnterEvent(self, event):
+        if event.source() is self:
+            super().dragEnterEvent(event)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.source() is self:
+            super().dragMoveEvent(event)
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if event.source() is not self:
+            event.ignore()
+            return
+        point = event.position().toPoint()
+        item = self.itemAt(point)
+        destination = self.count() if item is None else self.row(item) + int(point.y() >= self.visualItemRect(item).center().y())
+        ids = [item.data(PAGE_ID_ROLE) for item in self.selectedItems()]
+        event.setDropAction(Qt.MoveAction)
+        event.accept()
+        self.pagesDropped.emit(ids, destination)
 
 
 class PageThumbnailDelegate(QStyledItemDelegate):
