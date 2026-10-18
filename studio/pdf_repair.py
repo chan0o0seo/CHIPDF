@@ -19,11 +19,13 @@ def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda v
     imported, incoming, _ = import_files(paths, cancelled, progress)
     candidates, ambiguous = {}, set()
     native_layers = {}
+    sources = {}
     for page in imported.pages:
         check_cancel(cancelled)
         if not page.clean_asset:
             continue
         key = pixel_key(incoming[page.asset])
+        sources.setdefault(key, []).append(page)
         clean = incoming[page.clean_asset]
         if key in candidates and pixel_key(candidates[key]) != pixel_key(clean):
             ambiguous.add(key)
@@ -43,6 +45,12 @@ def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda v
         clean = candidates[key]
         page.clean_asset = f'assets/{page.id}_background.png'
         merged[page.clean_asset] = clean
+        # A unique visual match can also upgrade an older raster-only project.
+        originals = sources.get(key, [])
+        if len(originals) == 1 and originals[0].pdf_asset:
+            source = originals[0]
+            page.pdf_asset, page.pdf_page = source.pdf_asset, source.pdf_page
+            merged[page.pdf_asset] = incoming[page.pdf_asset]
         characters = native_layers.get(key, [])
         if characters and sum(len(p.native_chars) for p in trial.pages if p.id != page.id) + len(characters) <= 200000:
             page.native_chars = deepcopy(characters)

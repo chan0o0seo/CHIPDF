@@ -12,7 +12,7 @@ from .model import Project
 
 
 def required_assets(project: Project) -> set[str]:
-    return {key for page in project.pages for key in (page.asset, page.clean_asset) if key}
+    return {key for page in project.pages for key in (page.asset, page.clean_asset, page.pdf_asset) if key}
 
 
 def validate_asset_sizes(project: Project, assets: dict[str, bytes]):
@@ -67,7 +67,7 @@ def load_bundle(path: Path) -> tuple[Project, dict[str, bytes]]:
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
-            if not 2 <= len(names) <= 401 or len(set(names)) != len(names):
+            if not 2 <= len(names) <= 601 or len(set(names)) != len(names):
                 raise ValueError("프로젝트 구성 파일이 올바르지 않습니다.")
             manifest = archive.getinfo("manifest.json")
             if manifest.file_size > 64_000_000:

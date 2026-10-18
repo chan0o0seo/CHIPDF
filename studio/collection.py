@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QDial
 from .document_io import Cancelled, export_collection, folder_images, import_files, render_page
 from .jobs import Job
 from .model import Project
-from .storage import atomic_write, validate_asset_sizes
+from .storage import atomic_write, required_assets, validate_asset_sizes
 from .ui.page_list import PAGE_ID_ROLE, PAGE_NAME_ROLE, PAGE_NUMBER_ROLE, PageThumbnailDelegate
 from . import APP_NAME
 
@@ -190,7 +190,7 @@ class Collection:
                 retained_chars += len(page.native_chars)
             trial.pages.extend(incoming_pages)
             Project.from_dict(trial.to_dict())
-            used = {key for p in trial.pages for key in (p.asset, p.clean_asset) if key}
+            used = required_assets(trial)
             merged = {**self.assets, **assets}
             validate_asset_sizes(trial, merged)
             if sum(len(merged[key]) for key in used) > 512_000_000:
@@ -382,6 +382,7 @@ class Collection:
             if kind.currentData() == 'pdf':
                 count_label.setText(f'{count}페이지 · PDF 파일 1개')
                 note.setText('현재 모습과 내부 페이지 링크를 함께 저장합니다.\n'
+                             '원본 PDF가 보관된 페이지는 수정 영역만 덧입힙니다. 원문 텍스트는 내부에 남습니다.\n'
                              '저장 범위에 포함되지 않은 페이지로 가는 링크는 제외됩니다.')
             else:
                 count_label.setText(f'{count}페이지 · PNG 이미지 {count}개')

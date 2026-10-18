@@ -1,8 +1,8 @@
-치pdf 0.12.2 · macOS 설치 안내
+치pdf 0.13.0 · macOS 설치 안내
 
 지원 환경: macOS 15 이상, Apple Silicon(M 시리즈) 또는 Intel Mac
 
-1. chipdf-0.12.2.zip의 압축을 모두 풉니다.
+1. chipdf-0.13.0.zip의 압축을 모두 풉니다.
 2. Apple 메뉴 → 이 Mac에 관하여에서 칩/프로세서를 확인합니다.
 3. Apple Silicon(M 시리즈)이면 Apple-Silicon 폴더를,
    Intel 프로세서이면 Intel 폴더를 엽니다.
@@ -26,4 +26,8 @@ Chrome 번역을 사용할 때는 번역 도우미 창에서 '번역 준비'를 
 작업 파일 형식은 Windows와 같습니다. 다른 운영체제에 없는 글꼴은
 대체될 수 있으므로 줄바꿈과 배치를 확인하세요.
 
-설치·기능 안내: https://github.com/chan0o0seo/CHIPDF/releases/tag/ver_0.12.2
+새로 저장한 작업 파일(형식 12)은 치pdf 0.13.0 이상에서 열어 주세요.
+새로 가져온 PDF는 원본을 보관하고 수정 영역만 덧입혀 출력합니다.
+가려진 원문 텍스트는 출력 PDF 내부에 남아 검색·복사에 포함될 수 있습니다.
+
+설치·기능 안내: https://github.com/chan0o0seo/CHIPDF/releases/tag/ver_0.13.0

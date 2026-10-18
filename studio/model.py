@@ -137,6 +137,9 @@ class Page:
     background_patches: list[BackgroundPatch] = field(default_factory=list)
     # Optional rendering of the PDF with its native text objects removed.
     clean_asset: str = ""
+    # Shared, embedded source PDF; previews remain PNGs for editing/OCR.
+    pdf_asset: str = ""
+    pdf_page: int = -1
     # Pixel rectangles [x, y, width, height] and stable destination page IDs.
     pdf_links: list[dict] = field(default_factory=list)
     native_chars: list[list] = field(default_factory=list)
@@ -146,7 +149,7 @@ class Page:
 class Project:
     id: str = field(default_factory=uid)
     name: str = "새 작업"
-    version: int = 11
+    version: int = 12
     pages: list[Page] = field(default_factory=lambda: [Page()])
     translation_engine: str = "chrome"
     glossary: list[dict] = field(default_factory=list)
@@ -157,7 +160,7 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict) -> Project:
-        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11):
+        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
             raise ValueError("지원하지 않는 프로젝트 버전입니다.")
         from .translation_quality import validate_translation_data
         validate_translation_data(data.get("translation_engine", "chrome"),
@@ -200,6 +203,13 @@ class Project:
                 raise ValueError("PDF 배경 참조가 올바르지 않습니다.")
             if clean_asset:
                 assets.add(clean_asset)
+            pdf_asset, pdf_page = p.get('pdf_asset', ''), p.get('pdf_page', -1)
+            if (not isinstance(pdf_asset, str) or
+                    (pdf_asset and not re.fullmatch(r'assets/[a-f0-9]{64}\.pdf', pdf_asset)) or
+                    type(pdf_page) is not int or
+                    (pdf_asset and not 0 <= pdf_page < 200) or
+                    (not pdf_asset and pdf_page != -1)):
+                raise ValueError("원본 PDF 참조가 올바르지 않습니다.")
             if len(p["objects"]) > 2000:
                 raise ValueError("텍스트 상자가 너무 많습니다.")
             native_chars = p.get("native_chars", [])
@@ -383,7 +393,7 @@ class Project:
             for obj in page.objects:
                 if isinstance(obj, TextBox) and obj.link_mode == 'page' and obj.link_page_id not in page_ids:
                     raise ValueError('텍스트 링크 대상 페이지가 없습니다.')
-        return cls(id=data["id"], name=data["name"], version=11, pages=pages,
+        return cls(id=data["id"], name=data["name"], version=12, pages=pages,
                    translation_engine=data.get("translation_engine", "chrome"),
                    glossary=[dict(row, forbidden=list(row["forbidden"])) for row in data.get("glossary", [])],
                    translation_memory=[dict(row) for row in data.get("translation_memory", [])])

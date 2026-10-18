@@ -2,6 +2,7 @@
 from copy import deepcopy
 from contextlib import closing
 from io import BytesIO
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -53,6 +54,8 @@ def validate_bundle(project, assets):
     from .recognition import validate_patches
     Project.from_dict(project.to_dict())
     validate_asset_sizes(project, assets)
+    from .source_pdf import source_readers
+    source_readers(project.pages, assets)
     for page in project.pages:
         validate_images(page)
         validate_patches(page)
@@ -122,10 +125,22 @@ def import_files(paths, cancel=None, progress=lambda message: None):
             from .native_source import read_native_chars
             first_page = len(pages)
             imported_links = []
+            # Retain bytes once per source, independent of the external file.
+            pdf_data = path.read_bytes()
+            if len(pdf_data) > 250_000_000:
+                raise ValueError('원본 PDF가 250MB를 넘습니다.')
+            from .source_pdf import readable_source
+            preserve_pdf = readable_source(pdf_data)
+            pdf_asset = 'assets/'+hashlib.sha256(pdf_data).hexdigest()+'.pdf'
+            if preserve_pdf and pdf_asset not in assets:
+                total += len(pdf_data)
+                if total > 512_000_000:
+                    raise ValueError('작품 원본 용량이 512MB를 넘습니다. 자료를 나눠 가져와 주세요.')
+                assets[pdf_asset] = pdf_data
             # Every PDFium call and handle lifetime stays within this mutex.
             with PDF_LOCK:
                 try:
-                    document = pdfium.PdfDocument(path)
+                    document = pdfium.PdfDocument(pdf_data)
                 except pdfium.PdfiumError as exc:
                     raise ValueError('PDF를 읽지 못했습니다. 암호 또는 파일 상태를 확인해 주세요: '+path.name) from exc
                 with document:
@@ -151,7 +166,7 @@ def import_files(paths, cancel=None, progress=lambda message: None):
                                     from pypdf.errors import PdfReadError
                                     try:
                                         if textless_pdf is None:
-                                            textless_pdf = TextlessPdf(path)
+                                            textless_pdf = TextlessPdf(BytesIO(pdf_data))
                                         if textless_pdf is not False:
                                             cleaned = textless_pdf.render(index, scale, cancelled=cancel)
                                     except (PdfReadError, NotImplementedError):
@@ -168,6 +183,8 @@ def import_files(paths, cancel=None, progress=lambda message: None):
                                 if clean_image.convertToFormat(QImage.Format_RGBA8888) != image.convertToFormat(QImage.Format_RGBA8888):
                                     clean_data = cleaned[0]
                             append(image, f'{path.stem} · {index+1}', path, (w, h), clean_data)
+                            if preserve_pdf:
+                                pages[-1].pdf_asset, pages[-1].pdf_page = pdf_asset, index
                             try:
                                 chars = read_native_chars(pdf_page, image.width(), image.height(), cancel)
                             except (pdfium.PdfiumError, ValueError):
@@ -186,7 +203,7 @@ def import_files(paths, cancel=None, progress=lambda message: None):
     return project, assets, None
 
 
-def render_page(page, original):
+def render_page(page, original, *, overlay=False):
     """Use the same item painters as the editor without switching its active page."""
     from .canvas import TextItem
     from .object_items import GroupItem, VisualItem
@@ -195,8 +212,12 @@ def render_page(page, original):
     scene.show_controls = False
     context = SimpleNamespace(changed=lambda: None)
     needs_restoration = page.background_patches or any(isinstance(o, TextBox) and (o.text.strip() or o.erase_when_empty) and o.erase_enabled and o.erase_patch for o in page.objects)
-    background = QImage.fromData(restored_background(original, page.objects, page.background_patches), 'PNG') if needs_restoration else QImage.fromData(original, 'PNG')
-    scene.addPixmap(QPixmap.fromImage(background)).setZValue(-1)
+    if needs_restoration:
+        background = QImage.fromData(restored_background(original, page.objects, page.background_patches, overlay=overlay), 'PNG')
+    else:
+        background = None if overlay else QImage.fromData(original, 'PNG')
+    if background is not None:
+        scene.addPixmap(QPixmap.fromImage(background)).setZValue(-1)
     items = {}
     for obj in page.objects:
         item = TextItem(obj, context) if isinstance(obj, TextBox) else GroupItem(obj, context) if isinstance(obj, GroupBox) else VisualItem(obj, context)
@@ -229,37 +250,22 @@ def export_collection(project, assets, indices, destination, kind, cancel=None, 
     # Stage the entire batch next to its destination; cancellation never publishes half a batch.
     with tempfile.TemporaryDirectory(prefix='.studio-export-', dir=destination.parent) as temporary:
         stage = Path(temporary)
+        if kind == 'pdf':
+            from .source_pdf import export_pdf
+            export_pdf(project, assets, snapshot, stage / 'output.pdf', cancel, progress)
+            check_cancel(cancel)
+            os.replace(stage / 'output.pdf', destination)
+            return destination
         folder = stage / 'cards'
         folder.mkdir()
-        canvas = None
-        if kind == 'pdf':
-            from reportlab.pdfgen.canvas import Canvas
-            from reportlab.lib.utils import ImageReader
-            canvas = Canvas(str(stage / 'output.pdf'), pageCompression=1)
-            canvas.setTitle(project.name)
-            from .pdf_links import export_links
-            included_ids = {p.id for p in snapshot}
         for count, (index, page) in enumerate(zip(indices, snapshot)):
             progress(count)
             check_cancel(cancel)
             image = render_page(page, assets[page.asset])
             data = png_data(image)
-            if canvas:
-                w, h = (page.width_pt, page.height_pt) if page.width_pt and page.height_pt else (page.width*72/200, page.height*72/200)
-                canvas.setPageSize((w, h))
-                canvas.bookmarkPage(page.id)
-                canvas.drawImage(ImageReader(BytesIO(data)), 0, 0, w, h, mask='auto')
-                for (x, y, rw, rh), target in export_links(page, included_ids):
-                    canvas.linkRect('', target, (x*w/page.width, (page.height-y-rh)*h/page.height,
-                                                 (x+rw)*w/page.width, (page.height-y)*h/page.height),
-                                    relative=0, thickness=0)
-                canvas.showPage()
-            else:
-                name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', page.name).strip(' .')[:70] or '카드'
-                (folder / f'{index+1:03d}_{name}.png').write_bytes(data)
-        if canvas:
-            canvas.save()
+            name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', page.name).strip(' .')[:70] or '카드'
+            (folder / f'{index+1:03d}_{name}.png').write_bytes(data)
         progress(len(indices))
         check_cancel(cancel)
-        os.replace(stage / 'output.pdf', destination) if canvas else os.rename(folder, destination)
+        os.rename(folder, destination)
     return destination

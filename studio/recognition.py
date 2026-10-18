@@ -409,17 +409,29 @@ def _patch_images(rect, patch, mask, width, height, background=False):
     return decoded
 
 
-def restored_background(original, objects, background_patches=()):
+def restored_background(original, objects, background_patches=(), *, overlay=False):
     result = Image.open(io.BytesIO(original)).convert("RGBA")
+    coverage = Image.new('L', result.size) if overlay else None
+
+    def apply(rect, patch, mask):
+        position = tuple(int(v) for v in rect[:2])
+        result.paste(patch, position, mask)
+        if coverage is not None:
+            # The restored pixel already includes feathering against the original.
+            # Cover it opaquely, otherwise PDF compositing would blend it twice.
+            coverage.paste(255, position, mask.point(lambda value: 255 if value else 0))
+
     for obj in objects:
         if isinstance(obj, TextBox) and (obj.text.strip() or obj.erase_when_empty) and obj.erase_enabled and obj.erase_patch and obj.erase_mask and obj.erase_rect:
             patch, mask = _patch_images(obj.erase_rect, obj.erase_patch, obj.erase_mask, result.width, result.height)
-            result.paste(patch, tuple(int(v) for v in obj.erase_rect[:2]), mask)
+            apply(obj.erase_rect, patch, mask)
     # Brush repairs are made from the visible background and must keep their
     # result even where an earlier text removal patch occupies the same pixels.
     for record in background_patches:
         patch, mask = _patch_images(record.rect, record.patch, record.mask, result.width, result.height, background=True)
-        result.paste(patch, tuple(record.rect[:2]), mask)
+        apply(record.rect, patch, mask)
+    if coverage is not None:
+        result.putalpha(coverage)
     stream = io.BytesIO()
     result.save(stream, "PNG")
     return stream.getvalue()
