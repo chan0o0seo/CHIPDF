@@ -58,7 +58,7 @@ class DesignFeatureTests(unittest.TestCase):
 
     def test_new_fields_round_trip_and_are_validated(self):
         box = self.text(outline_width=4, outline_color='#112233', shadow_enabled=True, shadow_blur=6,
-                        highlight='#ffee00', text_opacity=.7, fill_opacity=.3)
+                        highlight='#ffee00', text_opacity=.7, fill_opacity=.3, auto_width=True, wrap_mode='char')
         box.paragraphs[0].runs[0].style.letter_spacing = 150
         image = ImageBox(x=10, y=10, width=100, height=100, image_data=self.png('#808080'),
                          brightness=20, contrast=-10, saturation=30, corner_radius=12,
@@ -69,7 +69,8 @@ class DesignFeatureTests(unittest.TestCase):
         loaded = Project.from_dict(data)
         self.assertEqual(loaded.to_dict(), data)
         for path, value in ((('objects', 0, 'outline_width'), 99), (('objects', 0, 'text_opacity'), 2),
-                            (('objects', 0, 'highlight'), 'red'), (('objects', 1, 'brightness'), 300),
+                            (('objects', 0, 'highlight'), 'red'), (('objects', 0, 'wrap_mode'), 'syllable'),
+                            (('objects', 0, 'auto_width'), 'yes'), (('objects', 1, 'brightness'), 300),
                             (('objects', 1, 'border_color'), 'blue'),
                             (('objects', 0, 'paragraphs', 0, 'runs', 0, 'style', 'letter_spacing'), 5000)):
             bad = deepcopy(data)
@@ -83,7 +84,7 @@ class DesignFeatureTests(unittest.TestCase):
         old = deepcopy(data)
         old['version'] = 12
         for obj in old['pages'][0]['objects']:
-            for key in ('text_opacity', 'fill_opacity', 'highlight', 'outline_color', 'outline_width', 'shadow_enabled',
+            for key in ('auto_width', 'wrap_mode', 'text_opacity', 'fill_opacity', 'highlight', 'outline_color', 'outline_width', 'shadow_enabled',
                         'shadow_color', 'shadow_opacity', 'shadow_dx', 'shadow_dy', 'shadow_blur', 'brightness',
                         'contrast', 'saturation', 'corner_radius', 'border_color', 'border_width'):
                 obj.pop(key, None)

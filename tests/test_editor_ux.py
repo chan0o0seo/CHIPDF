@@ -244,5 +244,77 @@ class EditorExperienceTests(unittest.TestCase):
         self.editor.duplicate_action.trigger()
         self.assertEqual(len(self.editor.current_page.objects), 3)
 
+    def lines(self, item):
+        document = item.document()
+        document.documentLayout().documentSize()
+        block, count = document.firstBlock(), 0
+        while block.isValid():
+            count += block.layout().lineCount()
+            block = block.next()
+        return count
+
+    def type_text(self, item, text):
+        cursor = item.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(text)
+        item.setTextCursor(cursor)
+        self.settle()
+
+    def test_new_text_box_grows_with_typing_until_resized(self):
+        self.editor.add_text()
+        box = self.editor.current_page.objects[-1]
+        item = self.item(box)
+        self.assertTrue(box.auto_width)
+        self.assertEqual(box.wrap_mode, 'char')
+        left, start_width = box.x, box.width
+        self.type_text(item, ' 입력할수록 상자가 옆으로 계속 늘어납니다')
+        self.assertGreater(box.width, start_width + 100)
+        self.assertAlmostEqual(box.x, left, delta=.5)
+        self.assertEqual(self.lines(item), 1)
+        item.finish_edit()
+        self.settle()
+        # Choosing a width by hand switches back to wrapping inside that width.
+        self.select(box)
+        width = box.width
+        edge = QPointF(box.x + box.width, box.y + box.height/2)
+        self.drag(edge, edge + QPointF(-width/2, 0))
+        box = self.current(box)
+        self.assertFalse(box.auto_width)
+        narrow = box.width
+        item = self.item(box)
+        item.begin_edit()
+        self.type_text(item, ' 더 입력하면 이제 줄이 바뀝니다')
+        self.assertAlmostEqual(box.width, narrow, delta=.5)
+        self.assertGreater(self.lines(item), 1)
+
+    def test_centred_auto_width_box_keeps_its_centre(self):
+        self.text.auto_width = True
+        self.text.paragraphs[0].align = 'center'
+        self.editor.rebuild_scene([self.text.id])
+        self.settle()
+        box = self.current(self.text)
+        item = self.item(box)
+        centre = box.x + box.width/2
+        item.begin_edit()
+        self.type_text(item, ' 가운데 정렬 상자는 양쪽으로 늘어납니다')
+        self.assertAlmostEqual(box.x + box.width/2, centre, delta=1)
+
+    def test_syllable_wrap_breaks_at_the_overflowing_syllable(self):
+        sentence = '한글 문장은 띄어쓰기에서만 줄을 바꾸면 오른쪽에 빈칸이 많이 남습니다'
+        self.text.paragraphs = [Paragraph([Run(sentence, Style(size=18, color='#000000'))])]
+        first_lines = {}
+        for mode in ('word', 'char'):
+            self.text.wrap_mode = mode
+            self.editor.rebuild_scene([self.text.id])
+            self.settle()
+            layout = self.item(self.current(self.text)).document().firstBlock().layout()
+            first_lines[mode] = sentence[:layout.lineAt(0).textLength()]
+        self.assertGreater(len(first_lines['char']), len(first_lines['word']))
+        self.assertTrue(first_lines['word'].endswith(' ') or sentence[len(first_lines['word'])] == ' ')
+        # The panel checkbox switches the mode for the selection.
+        self.select(self.current(self.text))
+        self.editor.inspector_char_wrap.click()
+        self.assertEqual(self.current(self.text).wrap_mode, 'word')
+
 if __name__ == '__main__':
     unittest.main()

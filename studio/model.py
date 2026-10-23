@@ -123,6 +123,10 @@ class TextBox(ObjectBox):
     erase_mask: str = ""
     link_mode: str = "auto"
     link_page_id: str = ""
+    # auto_width boxes grow with their text until resized by hand. Lines wrap at
+    # word boundaries ("word") or at the syllable that overflows ("char").
+    auto_width: bool = False
+    wrap_mode: str = "word"
     # Letters and the box background fade independently of ``opacity``.
     text_opacity: float = 1.0
     fill_opacity: float = 1.0
@@ -382,6 +386,8 @@ class Project:
                         raise ValueError("글자 효과 값이 올바르지 않습니다.")
                 if not isinstance(obj.get("shadow_enabled", False), bool):
                     raise ValueError("그림자 설정이 올바르지 않습니다.")
+                if not isinstance(obj.get("auto_width", False), bool) or obj.get("wrap_mode", "word") not in ("word", "char"):
+                    raise ValueError("상자 너비·줄내림 설정이 올바르지 않습니다.")
                 for key in ("outline_color", "shadow_color"):
                     if not re.fullmatch(r"#[a-fA-F0-9]{6}", obj.get(key, "#000000")):
                         raise ValueError("글자 효과 색이 올바르지 않습니다.")

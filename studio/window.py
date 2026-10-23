@@ -492,9 +492,11 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         height = min(130, max(50, page.height * 0.15))
         obj = TextBox(x=(page.width - width) / 2, y=(page.height - height) / 2,
                       width=max(24, width), height=height,
-                      parent_id=self.active_group_id, z=max((o.z for o in self.scope_objects()), default=-1) + 1)
+                      parent_id=self.active_group_id, z=max((o.z for o in self.scope_objects()), default=-1) + 1,
+                      auto_width=True, wrap_mode="char")
         self.current_page.objects.append(obj)
         self.rebuild_scene([obj.id])
+        self.items_by_id[obj.id].fit_to_text()
         self.finish_operation("텍스트 추가")
         item = self.items_by_id[obj.id]
         item.begin_edit()

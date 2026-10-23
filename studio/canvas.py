@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QTextCursor
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QTextCursor, QTextOption
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QStyle
 
 from . import richtext
@@ -73,6 +73,7 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         self.setDefaultTextColor(QColor(model.paragraphs[0].runs[0].style.color))
         richtext.populate(self.document(), model.paragraphs, model.margin)
         self.setTextWidth(model.width)
+        self.apply_wrap_mode()
         self.setPos(model.x, model.y)
         self.setTransformOriginPoint(model.width / 2, model.height / 2)
         self.setRotation(model.rotation)
@@ -154,8 +155,40 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         painter.restore()
         self.paint_controls(painter, self.has_overflow())
 
+    def apply_wrap_mode(self):
+        option = self.document().defaultTextOption()
+        option.setWrapMode(QTextOption.WrapAnywhere if self.model.wrap_mode == "char"
+                           else QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(option)
+
+    def fit_to_text(self):
+        """Grow or shrink an auto-width box to its unwrapped text, keeping its aligned edge."""
+        model = self.model
+        if not model.auto_width or self.is_vertical:
+            return
+        from .layout_tools import move_in_scene
+        document = self.document()
+        document.setTextWidth(-1)
+        width = max(24.0, min(16000.0, math.ceil(document.size().width()) + 1))
+        align = model.paragraphs[0].align
+        edge = {"left": 0, "center": .5, "right": 1}[align]
+        target = self.mapToScene(QPointF(model.width * edge, 0))
+        self.prepareGeometryChange()
+        model.width = width
+        self.setTextWidth(width)
+        model.height = max(24.0, min(16000.0, math.ceil(document.size().height())))
+        self.setTransformOriginPoint(width / 2, model.height / 2)
+        move_in_scene(self, target - self.mapToScene(QPointF(width * edge, 0)))
+        model.x, model.y = self.pos().x(), self.pos().y()
+        self.update()
+
+    def apply_text_settings(self):
+        self.apply_wrap_mode()
+        self.fit_to_text()
+
     def content_changed(self):
         self.model.paragraphs = richtext.extract(self.document(), self.defaultTextColor().name())
+        self.fit_to_text()
         if self.editing:
             self.model.target_origin = "manual"
             self.model.reviewed = False

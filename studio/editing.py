@@ -19,6 +19,8 @@ from .richtext import char_format
 
 def refresh_item(item):
     # Effects can change how far an item paints outside its box.
+    if hasattr(item, "apply_text_settings"):
+        item.apply_text_settings()
     item.refresh()
 
 

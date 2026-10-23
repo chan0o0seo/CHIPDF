@@ -1,7 +1,7 @@
 """Design-tool style inspector controls: sliders with values and colour swatches."""
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QColorDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMenu,
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMenu,
                               QPushButton, QSlider, QToolButton, QVBoxLayout, QWidget, QWidgetAction)
 
 BASIC_COLORS = (
@@ -167,6 +167,25 @@ def show_text_alignment(control, vertical):
     for index, (name, text) in enumerate(VERTICAL_TEXT_ALIGN_ITEMS if vertical else TEXT_ALIGN_ITEMS):
         control.setItemIcon(index, name)
         control.setItemText(index, text)
+
+
+def text_box_options(editor, texts, auto=None, wrap=None):
+    """Checkboxes for growing with the text and wrapping at the overflowing syllable."""
+    auto = auto or QCheckBox("상자 너비를 글자에 맞추기")
+    wrap = wrap or QCheckBox("글자 단위로 줄내림")
+    auto.setToolTip("입력할수록 상자가 옆으로 늘어납니다. 상자 너비를 직접 조절하면 꺼집니다.")
+    wrap.setToolTip("줄이 넘칠 때 띄어쓰기가 아니라 넘친 음절에서 바로 줄을 바꿉니다.")
+    for box, values in ((auto, {obj.auto_width for obj in texts}), (wrap, {obj.wrap_mode == "char" for obj in texts})):
+        box.blockSignals(True)
+        box.setTristate(len(values) > 1)
+        box.setCheckState(Qt.PartiallyChecked if len(values) > 1 else Qt.Checked if True in values else Qt.Unchecked)
+        box.blockSignals(False)
+    auto.setEnabled(bool(texts) and all(obj.writing_mode == "horizontal" for obj in texts))
+    if not auto.property("wired"):
+        auto.clicked.connect(lambda checked: editor.set_property("auto_width", checked, "상자 너비 자동"))
+        wrap.clicked.connect(lambda checked: editor.set_property("wrap_mode", "char" if checked else "word", "줄내림 방식"))
+        auto.setProperty("wired", True)
+    return auto, wrap
 
 
 def swatch_icon(color, size=18):

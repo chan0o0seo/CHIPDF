@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QDoubleSpinBox, QFontComboBox, QFormLayout, QLabe
                               QToolBar, QToolButton, QWidget, QWidgetAction)
 
 from ..model import ImageBox, ShapeBox, TextBox
-from .controls import TEXT_ALIGN_ITEMS, VERTICAL_TEXT_ALIGN_ITEMS, ColorButton, SliderField
+from .controls import TEXT_ALIGN_ITEMS, VERTICAL_TEXT_ALIGN_ITEMS, ColorButton, SliderField, text_box_options
 from .icons import icon
 from .inspector import same
 
@@ -210,6 +210,8 @@ class SelectionBar(QToolBar):
         lines.set_value(same([p.line_spacing for obj in texts for p in obj.paragraphs]))
         lines.committed.connect(lambda value: editor.apply_paragraph_settings({"line_spacing": value}))
         form.addRow("줄 간격", lines)
+        for box in text_box_options(editor, texts):
+            form.addRow(box)
 
     def _transparency_panel(self, form):
         editor = self.editor

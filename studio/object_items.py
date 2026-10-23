@@ -6,7 +6,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QApplication, QGraphicsItem
 
-from .model import ImageBox, ShapeBox, GroupBox
+from .model import ImageBox, ShapeBox, GroupBox, TextBox
 
 
 def decode_image(obj):
@@ -221,6 +221,9 @@ class BoxInteraction:
                 self.editor.changed()
                 return
             self.prepareGeometryChange()
+            if isinstance(self.model, TextBox):
+                # A width chosen by hand wins over growing with the text.
+                self.model.auto_width = False
             width = start_width-local.x() if "l" in name else local.x() if "r" in name else start_width
             height = start_height-local.y() if "t" in name else local.y() if "b" in name else start_height
             width, height = max(24, min(16000, width)), max(24, min(16000, height))

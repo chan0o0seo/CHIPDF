@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 from ..model import GroupBox, ImageBox, ShapeBox, TextBox
 from ..richtext import letter_spacing_from, letter_spacing_percent
 from .controls import (BOX_ALIGN_ITEMS, TEXT_ALIGN_ITEMS, ColorButton, SegmentedButtons, SliderField,
-                       show_text_alignment)
+                       show_text_alignment, text_box_options)
 from .icons import icon
 
 
@@ -352,6 +352,9 @@ class Inspector:
         self.inspector_letter_spacing.committed.connect(self._letter_spacing_committed)
         form.addRow("자간", self.inspector_letter_spacing)
         text_layout.addLayout(form)
+        self.inspector_auto_width, self.inspector_char_wrap = text_box_options(self, [])
+        text_layout.addWidget(self.inspector_auto_width)
+        text_layout.addWidget(self.inspector_char_wrap)
 
         self.inspector_effects_title = section(text_layout, "효과")
         form = self._inspector_form()
@@ -690,6 +693,7 @@ class Inspector:
             colors = {style.color for style in styles}
             self.inspector_text_color.set_color(next(iter(colors)) if len(colors) == 1 else None)
             self._update_text_effects(objects)
+            text_box_options(self, objects, self.inspector_auto_width, self.inspector_char_wrap)
         if all_shape:
             self.inspector_stroke.set_value(same([obj.stroke_width for obj in objects]))
             self.inspector_shape_opacity.set_value(same([obj.opacity * 100 for obj in objects]))
