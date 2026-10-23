@@ -192,18 +192,57 @@ class EditorExperienceTests(unittest.TestCase):
         self.editor.arrange('right')
         self.assertAlmostEqual(self.text.x + self.text.width, 800, delta=.5)
 
-    def test_quick_bar_follows_selection(self):
+    def test_selection_bar_follows_the_selection(self):
+        from studio.ui.selection_bar import BAR_HEIGHT
+        bar = self.editor.selection_bar
+        canvas = self.editor.canvas
+        # The bar owns a strip above the canvas instead of covering the page.
+        self.assertEqual(bar.geometry().top(), 0)
+        self.assertGreaterEqual(canvas.viewport().y(), BAR_HEIGHT)
         self.editor.scene.clearSelection()
         self.settle()
-        self.assertFalse(self.editor.quick_bar.isVisible())
+        self.assertTrue(bar.hint.isVisible())
+        self.assertFalse(bar.font_box.isVisible())
         self.select(self.text)
-        self.assertTrue(self.editor.quick_bar.isVisible())
-        bar = self.editor.quick_bar.geometry()
-        box = self.editor.canvas.mapFromScene(self.item(self.text).mapRectToScene(0, 0, 300, 120)).boundingRect()
-        self.assertLessEqual(bar.bottom(), box.top())
+        self.assertFalse(bar.hint.isVisible())
+        self.assertTrue(bar.font_box.isVisible() and bar.effects_button.isVisible())
+        self.assertFalse(bar.shape_fill.isVisible())
+        self.select(self.image)
+        self.assertFalse(bar.font_box.isVisible())
+        crop = next(b for b in bar.findChildren(type(bar.painter)) if b.defaultAction() is self.editor.image_tools[1])
+        self.assertTrue(crop.isVisible())
+
+    def test_selection_bar_text_commands(self):
+        bar = self.editor.selection_bar
+        self.select(self.text)
+        bar._step_size(1)
+        self.assertEqual(self.current(self.text).paragraphs[0].runs[0].style.size, 19)
+        bar._cycle_alignment()
+        self.assertEqual(self.current(self.text).paragraphs[0].align, 'center')
+        for expected in ('disc', 'decimal', ''):
+            bar.list_button.click()
+            self.assertEqual(self.current(self.text).paragraphs[0].list_style, expected)
+        # The roller copies this box's style and applies it to the next text clicked.
+        other = TextBox(x=100, y=400, width=300, height=100,
+                        paragraphs=[Paragraph([Run('XYZ', Style(size=30, color='#ff0000'))])])
+        self.editor.add_object(other, '텍스트')
+        self.select(self.current(self.text))
+        bar.painter.setChecked(True)
+        self.assertTrue(bar.painting)
+        self.select(next(o for o in self.editor.current_page.objects if o.id == other.id))
+        style = next(o for o in self.editor.current_page.objects if o.id == other.id).paragraphs[0].runs[0].style
+        self.assertEqual((style.size, style.color), (19, '#000000'))
+        self.assertFalse(bar.painter.isChecked())
+
+    def test_more_menu_holds_object_commands(self):
+        bar = self.editor.selection_bar
+        self.select(self.text)
+        more = next(b for b in bar.findChildren(type(bar.painter)) if b.accessibleName().startswith('더보기'))
+        actions = more.menu().actions()
+        self.assertIn(self.editor.duplicate_action, actions)
+        self.assertIn(self.editor.lock_action, actions)
         self.editor.duplicate_action.trigger()
         self.assertEqual(len(self.editor.current_page.objects), 3)
-
 
 if __name__ == '__main__':
     unittest.main()

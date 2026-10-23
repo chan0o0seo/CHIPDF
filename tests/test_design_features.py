@@ -161,6 +161,38 @@ class DesignFeatureTests(unittest.TestCase):
         self.assertGreater(framed[203, 400, 0], 200)
         self.assertLess(framed[203, 400, 1], 60)
 
+    def test_bullet_lists_round_trip_render_and_stay_text(self):
+        box = self.text()
+        style = Style(size=30, color='#000000')
+        box.paragraphs = [Paragraph([Run('첫째 항목', style)], list_style='disc'),
+                          Paragraph([Run('둘째 항목', style)], list_style='disc'),
+                          Paragraph([Run('번호 항목', style)], list_style='decimal')]
+        data = self.project.to_dict()
+        self.assertEqual(Project.from_dict(data).to_dict(), data)
+        bad = deepcopy(data)
+        bad['pages'][0]['objects'][0]['paragraphs'][0]['list_style'] = 'star'
+        with self.assertRaises(ValueError):
+            Project.from_dict(bad)
+        # The editor's document reads the same lists back.
+        from studio.canvas import TextItem
+        from types import SimpleNamespace
+        from studio import richtext
+        item = TextItem(box, SimpleNamespace(changed=lambda: None))
+        self.assertEqual([p.list_style for p in richtext.extract(item.document())], ['disc', 'disc', 'decimal'])
+        listed = pixels(self.page, self.assets)
+        box.paragraphs = [Paragraph([Run(p.runs[0].text, style)]) for p in box.paragraphs]
+        plain = pixels(self.page, self.assets)
+        ink = lambda image: np.nonzero(image[200:400, 100:800].max(axis=2) < 128)[1].min()
+        # Markers push the text right of where plain paragraphs start.
+        self.assertGreater(ink(plain), ink(listed) - 1)
+        self.assertGreater(int((listed != plain).any(axis=2).sum()), 200)
+        box.paragraphs[0].list_style = box.paragraphs[1].list_style = 'disc'
+        output = self.work / 'list.pdf'
+        report = {}
+        export_collection(self.project, self.assets, [0], output, 'pdf', report=report)
+        self.assertEqual(report['image_text_pages'], [])
+        self.assertIn('첫째', ''.join(PdfReader(output).pages[0].extract_text().split()))
+
     def test_effects_stay_real_text_in_pdf_text_mode(self):
         for vertical in (False, True):
             for blur in (0, 6):

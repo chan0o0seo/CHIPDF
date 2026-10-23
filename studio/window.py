@@ -107,8 +107,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.init_font_favorites()
         self.init_inspector()
         self.init_ribbon()
-        from .ui.quick_bar import QuickBar
-        self.quick_bar = QuickBar(self)
+        from .ui.selection_bar import SelectionBar
+        self.selection_bar = SelectionBar(self)
         apply_theme(self)
         self.undo_stack.indexChanged.connect(self.update_tools)
         self.update_tools()
@@ -463,6 +463,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.update_presets_tools()
         self.update_link_tools()
         self.update_inspector()
+        if hasattr(self, "selection_bar"):
+            self.selection_bar.sync()
         self.update_ribbon()
 
     def set_writing_mode(self, mode):
@@ -586,6 +588,53 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         else:
             fmt.setFontUnderline(enabled)
         self.apply_format(fmt)
+
+    def list_targets(self):
+        selected = self.mutable_selection()
+        if not selected or not all(isinstance(i.model, TextBox) and i.model.writing_mode == "horizontal" for i in selected):
+            return []
+        return selected
+
+    def toggle_list(self):
+        """Cycle like design tools: plain → bullets → numbers → plain."""
+        selected = self.list_targets()
+        if selected:
+            current = selected[0].model.paragraphs[0].list_style
+            self.set_list_style({"": "disc", "disc": "decimal", "decimal": ""}[current])
+
+    def set_list_style(self, style):
+        from .richtext import LIST_FORMATS
+        selected = self.list_targets()
+        if not selected:
+            return
+        self.begin_operation()
+        editing = self.editing_item()
+        for item in selected:
+            document = item.document()
+            cursor = item.textCursor() if item.editing else QTextCursor(document)
+            if not item.editing:
+                cursor.select(QTextCursor.Document)
+            first = document.findBlock(cursor.selectionStart())
+            last = document.findBlock(cursor.selectionEnd())
+            edit = QTextCursor(first)
+            edit.beginEditBlock()
+            block = first
+            while block.isValid():
+                if block.textList():
+                    block.textList().remove(block)
+                plain = QTextBlockFormat()
+                plain.setIndent(0)
+                QTextCursor(block).mergeBlockFormat(plain)
+                if block == last:
+                    break
+                block = block.next()
+            if style:
+                edit.setPosition(first.position())
+                edit.setPosition(last.position() + last.length() - 1, QTextCursor.KeepAnchor)
+                edit.createList(LIST_FORMATS[style])
+            edit.endEditBlock()
+        if not editing:
+            self.finish_operation("목록")
 
     def choose_color(self):
         color = QColorDialog.getColor(parent=self, title="글자색")

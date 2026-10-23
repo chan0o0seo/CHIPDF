@@ -43,6 +43,8 @@ class Paragraph:
     line_spacing: float = 1.0
     space_before: float = 0.0
     space_after: float = 0.0
+    # "" (plain), "disc" (bullets) or "decimal" (1. 2. 3.)
+    list_style: str = ""
 
 
 @dataclass
@@ -386,6 +388,8 @@ class Project:
                 if obj.get("highlight", "transparent") != "transparent" and not re.fullmatch(r"#[a-fA-F0-9]{6}", obj["highlight"]):
                     raise ValueError("글자 배경색이 올바르지 않습니다.")
                 for para in obj["paragraphs"]:
+                    if para.get("list_style", "") not in ("", "disc", "decimal"):
+                        raise ValueError("목록 종류가 올바르지 않습니다.")
                     if para["align"] not in ("left", "center", "right"):
                         raise ValueError("문단 정렬이 올바르지 않습니다.")
                     for key, default, lower, upper in (("line_spacing", 1, .5, 4), ("space_before", 0, 0, 500), ("space_after", 0, 0, 500)):
@@ -405,7 +409,8 @@ class Project:
                         if not re.fullmatch(r"#[a-fA-F0-9]{6}", style.color) or not isinstance(run["text"], str):
                             raise ValueError("글자 정보가 올바르지 않습니다.")
                         runs.append(Run(run["text"], style))
-                    paragraphs.append(Paragraph(runs or [Run()], para["align"], para.get("line_spacing", 1), para.get("space_before", 0), para.get("space_after", 0)))
+                    paragraphs.append(Paragraph(runs or [Run()], para["align"], para.get("line_spacing", 1), para.get("space_before", 0), para.get("space_after", 0),
+                                                para.get("list_style", "")))
                 objects.append(TextBox(**{**obj, "paragraphs": paragraphs or [Paragraph()]}))
             by_id = {obj.id: obj for obj in objects}
             for obj in objects:

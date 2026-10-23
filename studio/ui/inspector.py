@@ -4,7 +4,7 @@ import math
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QTextCharFormat
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox,
                               QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
                               QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
                               QToolButton, QVBoxLayout, QWidget)
@@ -41,6 +41,7 @@ def section(layout, title):
     label = QLabel(title)
     label.setObjectName("inspectorSectionTitle")
     layout.addWidget(label)
+    return label
 
 
 def icon_row(actions, parent):
@@ -184,6 +185,14 @@ class Inspector:
         self.source_dock.raise_()
         self.update_inspector()
         self.restore_canvas_view(view)
+
+    def show_effects(self):
+        """Open the format page scrolled to the text effects, as design tools open an effects panel."""
+        self.show_inspector("format")
+        QApplication.processEvents()
+        scroll = self.inspector.stack.currentWidget()
+        title = self.inspector_effects_title
+        scroll.verticalScrollBar().setValue(title.mapTo(scroll.widget(), title.rect().topLeft()).y() - 8)
 
     def _inspector_page(self):
         page = QWidget()
@@ -344,7 +353,7 @@ class Inspector:
         form.addRow("자간", self.inspector_letter_spacing)
         text_layout.addLayout(form)
 
-        section(text_layout, "효과")
+        self.inspector_effects_title = section(text_layout, "효과")
         form = self._inspector_form()
         self.inspector_outline_color = self._color_button("외곽선 색")
         self.inspector_outline_color.picked.connect(self._picked("outline_color", "외곽선 색"))

@@ -400,6 +400,47 @@ def _draw(p: QPainter, name: str, color: QColor) -> None:
             line(5, 20, 19, 20)
         line(12, 4, 12, bottom)
         path([(7, bottom - 5), (12, bottom), (17, bottom - 5)])
+    elif name == "spacing":
+        # A letter T above a double-headed arrow: spacing between letters and lines.
+        line(6, 4, 18, 4)
+        line(12, 4, 12, 14)
+        line(4, 19, 20, 19)
+        path([(7, 16.5), (4, 19), (7, 21.5)])
+        path([(17, 16.5), (20, 19), (17, 21.5)])
+    elif name == "transparency":
+        p.save()
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        for row in range(4):
+            for column in range(4):
+                if (row + column) % 2 == 0:
+                    p.drawRect(QRectF(4 + column * 4, 4 + row * 4, 4, 4))
+        p.restore()
+        rect(4, 4, 16, 16, 1)
+    elif name == "list":
+        for y in (6, 12, 18):
+            dot(5, y, 1.3)
+            line(9, y, 20, y)
+    elif name in ("flip-h", "flip-v"):
+        # Two mirrored triangles on either side of a dashed axis.
+        if name == "flip-h":
+            for y in range(3, 22, 4):
+                line(12, y, 12, y + 2)
+            path([(9, 6), (3, 18), (9, 18)], close=True)
+            path([(15, 6), (21, 18), (15, 18)], close=True)
+        else:
+            for x in range(3, 22, 4):
+                line(x, 12, x + 2, 12)
+            path([(6, 9), (18, 3), (18, 9)], close=True)
+            path([(6, 15), (18, 21), (18, 15)], close=True)
+    elif name == "corner":
+        curve = QPainterPath(QPointF(4, 20))
+        curve.lineTo(4, 11)
+        curve.quadTo(4, 4, 11, 4)
+        curve.lineTo(20, 4)
+        p.drawPath(curve)
+        dot(4, 20)
+        dot(20, 4)
     elif name in ("text-top", "text-middle", "text-bottom"):
         rect(3, 3, 18, 18, 2)
         first = {"text-top": 7, "text-middle": 10.25, "text-bottom": 13.5}[name]

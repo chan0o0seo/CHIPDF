@@ -194,14 +194,49 @@ def swatch_icon(color, size=18):
     return QIcon(pixmap)
 
 
+def text_color_icon(color, size=22):
+    """A letter A over a bar of the current colour; mixed selections show a spectrum."""
+    from PySide6.QtGui import QLinearGradient, QPainterPath
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.scale(size / 24, size / 24)
+    painter.setPen(QPen(QColor("#3C4856"), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    letter = QPainterPath()
+    letter.moveTo(6, 16)
+    letter.lineTo(12, 3)
+    letter.lineTo(18, 16)
+    letter.moveTo(8.4, 11)
+    letter.lineTo(15.6, 11)
+    painter.drawPath(letter)
+    bar = QRectF(4, 18.5, 16, 3.5)
+    painter.setPen(Qt.NoPen)
+    if color in (None, "transparent"):
+        spectrum = QLinearGradient(bar.topLeft(), bar.topRight())
+        for stop, hue in ((0, "#ff3131"), (.25, "#ffde59"), (.5, "#00bf63"), (.75, "#38b6ff"), (1, "#8c52ff")):
+            spectrum.setColorAt(stop, QColor(hue))
+        painter.setBrush(spectrum)
+    else:
+        painter.setBrush(QColor(color))
+    painter.drawRoundedRect(bar, 1.2, 1.2)
+    if color not in (None, "transparent") and QColor(color).lightness() > 200:
+        painter.setPen(QPen(QColor(0, 0, 0, 110), .8))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(bar, 1.2, 1.2)
+    painter.end()
+    return QIcon(pixmap)
+
+
 class ColorButton(QToolButton):
     """A swatch that opens a palette: document, recent and basic colours."""
 
     picked = Signal(str)
 
-    def __init__(self, title, allow_none=False, colors=None, eyedropper=None, parent=None):
+    def __init__(self, title, allow_none=False, colors=None, eyedropper=None, parent=None, text_glyph=False):
         super().__init__(parent)
         self.title = title
+        self.text_glyph = text_glyph
         self.allow_none = allow_none
         self.colors = colors or (lambda: ([], []))
         self.eyedropper = eyedropper
@@ -218,7 +253,7 @@ class ColorButton(QToolButton):
 
     def set_color(self, color):
         self.current = color
-        self.setIcon(swatch_icon(color))
+        self.setIcon(text_color_icon(color) if self.text_glyph else swatch_icon(color))
 
     def _choose(self, color):
         self.menu_.close()

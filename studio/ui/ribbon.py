@@ -122,7 +122,7 @@ class OfficeRibbon:
                 action.setIcon(icon(symbol))
         for action in (self.shape_fill, self.shape_clear, self.shape_stroke):
             action.setIcon(icon('shape'))
-        for action, symbol in zip(self.image_tools, ('image', 'fit', 'compare', 'compare', 'lock')):
+        for action, symbol in zip(self.image_tools, ('image', 'crop', 'flip-h', 'flip-v', 'lock')):
             action.setIcon(icon(symbol))
 
         # Preserve all original menu actions and shortcuts, including infrequent tools.

@@ -498,17 +498,30 @@ QLabel#inspectorSubTitle, QLabel#paletteTitle {
 QWidget#colorPalette {
     background: $panelSurface;
 }
-QFrame#quickBar {
+QToolBar#selectionBar {
     background: $panelSurface;
-    border: 1px solid $divider;
-    border-radius: 8px;
-}
-QFrame#quickBar QToolButton {
+    border: none;
+    border-bottom: 1px solid $divider;
+    spacing: 2px;
     padding: 4px 8px;
+}
+QToolBar#selectionBar QToolButton {
+    padding: 4px 6px;
     border-radius: 6px;
 }
-QFrame#quickBar QToolButton:hover {
+QToolBar#selectionBar QToolButton:hover, QToolBar#selectionBar QToolButton:checked {
     background: $accentSoft;
+}
+QToolBar#selectionBar QToolButton::menu-indicator {
+    image: none;
+    width: 0;
+}
+QLabel#selectionBarHint {
+    color: $textSecondary;
+    padding: 0 6px;
+}
+QWidget#barPopover {
+    background: $panelSurface;
 }
 QListWidget#layerList {
     border: 1px solid $divider;
