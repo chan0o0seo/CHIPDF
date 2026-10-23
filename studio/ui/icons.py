@@ -367,6 +367,44 @@ def _draw(p: QPainter, name: str, color: QColor) -> None:
         line(12, 4, 12, 20)
     elif name == "minus":
         line(4, 12, 20, 12)
+    elif name in ("obj-align-left", "obj-align-hcenter", "obj-align-right"):
+        # A guide line with two bars of different lengths aligned to it.
+        guide = {"obj-align-left": 4, "obj-align-hcenter": 12, "obj-align-right": 20}[name]
+        line(guide, 3, guide, 21)
+        for top, length in ((6, 13), (14, 8)):
+            left = guide + 3 if name == "obj-align-left" else guide - 3 - length if name == "obj-align-right" else guide - length / 2
+            rect(left, top, length, 4, 1)
+    elif name in ("obj-align-top", "obj-align-vcenter", "obj-align-bottom"):
+        guide = {"obj-align-top": 4, "obj-align-vcenter": 12, "obj-align-bottom": 20}[name]
+        line(3, guide, 21, guide)
+        for left, length in ((6, 13), (14, 8)):
+            top = guide + 3 if name == "obj-align-top" else guide - 3 - length if name == "obj-align-bottom" else guide - length / 2
+            rect(left, top, 4, length, 1)
+    elif name == "distribute-h":
+        line(3, 4, 3, 20)
+        line(21, 4, 21, 20)
+        rect(9, 7, 6, 10, 1)
+    elif name == "distribute-v":
+        line(4, 3, 20, 3)
+        line(4, 21, 20, 21)
+        rect(7, 9, 10, 6, 1)
+    elif name in ("layer-front", "layer-forward"):
+        top = 8 if name == "layer-front" else 6
+        if name == "layer-front":
+            line(5, 4, 19, 4)
+        line(12, 20, 12, top)
+        path([(7, top + 5), (12, top), (17, top + 5)])
+    elif name in ("layer-back", "layer-backward"):
+        bottom = 16 if name == "layer-back" else 18
+        if name == "layer-back":
+            line(5, 20, 19, 20)
+        line(12, 4, 12, bottom)
+        path([(7, bottom - 5), (12, bottom), (17, bottom - 5)])
+    elif name in ("text-top", "text-middle", "text-bottom"):
+        rect(3, 3, 18, 18, 2)
+        first = {"text-top": 7, "text-middle": 10.25, "text-bottom": 13.5}[name]
+        line(7, first, 17, first)
+        line(7, first + 3.5, 14, first + 3.5)
     else:
         for x in (5, 12, 19):
             dot(x, 12, 1.2)

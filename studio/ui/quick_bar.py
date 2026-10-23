@@ -1,5 +1,5 @@
 """A small floating toolbar above the selection, as in design tools."""
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QToolButton
 
 
@@ -14,9 +14,9 @@ class QuickBar(QFrame):
         layout.setSpacing(2)
         for action in (editor.duplicate_action, editor.delete_action, editor.lock_action):
             layout.addWidget(self._button(action=action))
-        layout.addWidget(self._button("앞으로", "한 단계 앞으로", lambda: editor.reorder("raise")))
-        layout.addWidget(self._button("뒤로", "한 단계 뒤로", lambda: editor.reorder("lower")))
-        layout.addWidget(self._button("서식", "서식·효과 패널 열기", lambda: editor.show_inspector("format")))
+        layout.addWidget(self._button("layer-forward", "한 단계 앞으로", lambda: editor.reorder("raise")))
+        layout.addWidget(self._button("layer-backward", "한 단계 뒤로", lambda: editor.reorder("lower")))
+        layout.addWidget(self._button("font", "서식·효과 패널 열기", lambda: editor.show_inspector("format")))
         self.hide()
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -29,15 +29,19 @@ class QuickBar(QFrame):
         canvas.horizontalScrollBar().valueChanged.connect(self.schedule)
         canvas.verticalScrollBar().valueChanged.connect(self.schedule)
 
-    def _button(self, text=None, tip=None, handler=None, action=None):
+    def _button(self, name=None, tip=None, handler=None, action=None):
+        from .icons import icon
         button = QToolButton(self)
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.NoFocus)
+        button.setIconSize(QSize(20, 20))
+        button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         if action is not None:
             button.setDefaultAction(action)
-            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            button.setToolTip(action.toolTip() or action.text())
+            button.setAccessibleName(action.text())
         else:
-            button.setText(text)
+            button.setIcon(icon(name))
             button.setToolTip(tip)
             button.setAccessibleName(tip)
             button.clicked.connect(handler)

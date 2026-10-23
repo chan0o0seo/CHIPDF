@@ -96,6 +96,79 @@ class SliderField(QWidget):
         self.committed.emit(value)
 
 
+class SegmentedButtons(QWidget):
+    """Exclusive icon buttons with the small QComboBox API the editor already uses.
+
+    currentIndex()/setCurrentIndex(-1 for mixed)/activated(int)/setItemText keep
+    existing alignment code working while the choice is shown as icons.
+    """
+
+    activated = Signal(int)
+
+    def __init__(self, items, parent=None):
+        super().__init__(parent)
+        from .icons import icon
+        self._icon = icon
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        self.buttons = []
+        for index, (name, text) in enumerate(items):
+            button = QToolButton(self)
+            button.setCheckable(True)
+            button.setAutoRaise(True)
+            button.setIcon(icon(name))
+            button.setIconSize(QSize(20, 20))
+            button.setMinimumSize(32, 30)
+            button.setToolTip(text)
+            button.setAccessibleName(text)
+            button.clicked.connect(lambda _=False, i=index: self._clicked(i))
+            layout.addWidget(button)
+            self.buttons.append(button)
+        layout.addStretch()
+        self._index = -1
+
+    def _clicked(self, index):
+        self.setCurrentIndex(index)
+        self.activated.emit(index)
+
+    def count(self):
+        return len(self.buttons)
+
+    def currentIndex(self):
+        return self._index
+
+    def setCurrentIndex(self, index):
+        self._index = index if 0 <= index < len(self.buttons) else -1
+        for position, button in enumerate(self.buttons):
+            button.setChecked(position == self._index)
+
+    def itemText(self, index):
+        return self.buttons[index].toolTip()
+
+    def setItemText(self, index, text):
+        self.buttons[index].setToolTip(text)
+        self.buttons[index].setAccessibleName(text)
+
+    def setItemIcon(self, index, name):
+        self.buttons[index].setIcon(self._icon(name))
+
+    def setPlaceholderText(self, _text):
+        """Mixed selections simply show no pressed button."""
+
+
+TEXT_ALIGN_ITEMS = (("align-left", "왼쪽 정렬"), ("align-center", "가운데 정렬"), ("align-right", "오른쪽 정렬"))
+VERTICAL_TEXT_ALIGN_ITEMS = (("obj-align-top", "위쪽 정렬"), ("obj-align-vcenter", "가운데 정렬"), ("obj-align-bottom", "아래쪽 정렬"))
+BOX_ALIGN_ITEMS = (("text-top", "위 정렬"), ("text-middle", "세로 가운데 정렬"), ("text-bottom", "아래 정렬"))
+
+
+def show_text_alignment(control, vertical):
+    """Vertical writing aligns along the column: show top/middle/bottom icons."""
+    for index, (name, text) in enumerate(VERTICAL_TEXT_ALIGN_ITEMS if vertical else TEXT_ALIGN_ITEMS):
+        control.setItemIcon(index, name)
+        control.setItemText(index, text)
+
+
 def swatch_icon(color, size=18):
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -105,7 +178,7 @@ def swatch_icon(color, size=18):
     if color in (None, "transparent"):
         painter.setBrush(QColor("#ffffff"))
         painter.setPen(QPen(QColor("#9aa3ad"), 1))
-        painter.drawRoundedRect(rect, 4, 4)
+        painter.drawEllipse(rect)
         painter.setPen(QPen(QColor("#d64545" if color == "transparent" else "#9aa3ad"), 1.5))
         if color == "transparent":
             painter.drawLine(rect.bottomLeft(), rect.topRight())
@@ -116,7 +189,7 @@ def swatch_icon(color, size=18):
         # Light colours need a visible edge against the white panel.
         light = QColor(color).lightness() > 200
         painter.setPen(QPen(QColor(0, 0, 0, 150 if light else 60), 1))
-        painter.drawRoundedRect(rect, 4, 4)
+        painter.drawEllipse(rect)
     painter.end()
     return QIcon(pixmap)
 

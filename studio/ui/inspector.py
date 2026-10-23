@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import math
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QTextCharFormat
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox,
                               QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
 
 from ..model import GroupBox, ImageBox, ShapeBox, TextBox
 from ..richtext import letter_spacing_from, letter_spacing_percent
-from .controls import ColorButton, SliderField
+from .controls import (BOX_ALIGN_ITEMS, TEXT_ALIGN_ITEMS, ColorButton, SegmentedButtons, SliderField,
+                       show_text_alignment)
+from .icons import icon
 
 
 @contextmanager
@@ -39,6 +41,24 @@ def section(layout, title):
     label = QLabel(title)
     label.setObjectName("inspectorSectionTitle")
     layout.addWidget(label)
+
+
+def icon_row(actions, parent):
+    """Icon-only buttons for actions; names stay in tooltips and for screen readers."""
+    row = QHBoxLayout()
+    row.setSpacing(4)
+    for action in actions:
+        button = QToolButton(parent)
+        button.setDefaultAction(action)
+        button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        button.setIconSize(QSize(20, 20))
+        button.setAutoRaise(True)
+        button.setToolTip(action.toolTip() or action.text())
+        button.setAccessibleName(action.text())
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setMinimumHeight(32)
+        row.addWidget(button)
+    return row
 
 
 def action_button(action, parent):
@@ -285,25 +305,22 @@ class Inspector:
         self.inspector_text_color.picked.connect(self._text_color_picked)
         row.addWidget(self.inspector_text_color, 1)
         text_layout.addLayout(row)
-        flags = QGridLayout()
-        flags.setSpacing(4)
-        for index, name in enumerate(("bold_action", "italic_action", "underline_action", "strike_action")):
-            action = getattr(self, name, None)
-            if action:
-                flags.addWidget(action_button(action, page), index // 2, index % 2)
-        text_layout.addLayout(flags)
+        text_layout.addLayout(icon_row([getattr(self, name) for name in
+                                        ("bold_action", "italic_action", "underline_action", "strike_action")
+                                        if getattr(self, name, None)], page))
         section(text_layout, "문단")
-        self.inspector_align = QComboBox()
-        self.inspector_align.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.inspector_align = SegmentedButtons(TEXT_ALIGN_ITEMS)
+        self.inspector_align.setAccessibleName("문단 정렬")
         self.inspector_align.activated.connect(self.format_alignment)
-        text_layout.addWidget(self.inspector_align)
-        self.inspector_vertical_align = QComboBox()
-        self.inspector_vertical_align.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        row.addWidget(self.inspector_align)
+        self.inspector_vertical_align = SegmentedButtons(BOX_ALIGN_ITEMS)
         self.inspector_vertical_align.setAccessibleName("상자 안 글자 세로 정렬")
-        self.inspector_vertical_align.setPlaceholderText("혼합")
         self.inspector_vertical_align.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
         self.inspector_vertical_align.activated.connect(self.format_vertical_alignment)
-        text_layout.addWidget(self.inspector_vertical_align)
+        row.addWidget(self.inspector_vertical_align)
+        text_layout.addLayout(row)
         form = self._inspector_form()
         self.inspector_paragraph = {}
         for key, label, lower, upper, step, suffix in (
@@ -355,10 +372,10 @@ class Inspector:
         form.addRow("상자 배경", self.inspector_fill)
         self.inspector_fill_opacity = self._slider(form, "배경", "fill_opacity", 0, 100, " %", .01, title="배경 불투명도")
         text_layout.addLayout(form)
-        for name in ("vertical_action", "copy_style_action", "paste_style_action"):
-            action = getattr(self, name, None)
-            if action:
-                text_layout.addWidget(action_button(action, page))
+        self._subsection(text_layout, "세로쓰기 · 서식 복사 · 서식 붙여넣기")
+        text_layout.addLayout(icon_row([getattr(self, name) for name in
+                                        ("vertical_action", "copy_style_action", "paste_style_action")
+                                        if getattr(self, name, None)], page))
         layout.addWidget(self.inspector_text_controls)
 
         self.inspector_shape_controls = QWidget()
@@ -413,13 +430,15 @@ class Inspector:
         grid = QGridLayout()
         grid.setSpacing(4)
         buttons = []
-        for index, (label, mode, tip) in enumerate(rows):
+        for index, (name, mode, tip) in enumerate(rows):
             button = QToolButton()
-            button.setText(label)
+            button.setIcon(icon(name))
+            button.setIconSize(QSize(20, 20))
             button.setToolTip(tip)
             button.setAccessibleName(tip)
+            button.setAutoRaise(True)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            button.setMinimumHeight(30)
+            button.setMinimumHeight(32)
             button.clicked.connect(lambda _=False, m=mode: handler(m))
             grid.addWidget(button, index // columns, index % columns)
             buttons.append(button)
@@ -446,24 +465,22 @@ class Inspector:
         self.inspector_opacity = self._slider(form, "불투명도", "opacity", 0, 100, " %", .01)
         layout.addLayout(form)
         section(layout, "정렬")
-        grid, align = self._icon_buttons((
-            ("왼쪽", "left", "왼쪽 맞춤"), ("가운데", "hcenter", "가로 가운데 맞춤"), ("오른쪽", "right", "오른쪽 맞춤"),
-            ("위", "top", "위쪽 맞춤"), ("중간", "vcenter", "세로 가운데 맞춤"), ("아래", "bottom", "아래쪽 맞춤")),
-            self.arrange, columns=3)
+        grid, self.inspector_align_buttons = self._icon_buttons((
+            ("obj-align-left", "left", "왼쪽 맞춤"), ("obj-align-hcenter", "hcenter", "가로 가운데 맞춤"),
+            ("obj-align-right", "right", "오른쪽 맞춤"), ("distribute-h", "horizontal", "가로 간격 같게 (3개 이상)"),
+            ("obj-align-top", "top", "위쪽 맞춤"), ("obj-align-vcenter", "vcenter", "세로 가운데 맞춤"),
+            ("obj-align-bottom", "bottom", "아래쪽 맞춤"), ("distribute-v", "vertical", "세로 간격 같게 (3개 이상)")),
+            self.arrange)
         layout.addLayout(grid)
-        grid, spread = self._icon_buttons((
-            ("가로 간격 같게", "horizontal", "가로 간격 같게 (3개 이상)"),
-            ("세로 간격 같게", "vertical", "세로 간격 같게 (3개 이상)")), self.arrange, columns=1)
-        layout.addLayout(grid)
-        self.inspector_align_buttons = align + spread
         layout.addWidget(note("하나만 선택하면 페이지(그룹 안에서는 그룹)를 기준으로 맞춥니다."))
         section(layout, "순서")
         grid, self.inspector_order_buttons = self._icon_buttons((
-            ("맨 앞", "front", "맨 앞으로"), ("앞으로", "raise", "한 단계 앞으로"),
-            ("뒤로", "lower", "한 단계 뒤로"), ("맨 뒤", "back", "맨 뒤로")), self.reorder, columns=2)
+            ("layer-front", "front", "맨 앞으로"), ("layer-forward", "raise", "한 단계 앞으로"),
+            ("layer-backward", "lower", "한 단계 뒤로"), ("layer-back", "back", "맨 뒤로")), self.reorder)
         layout.addLayout(grid)
-        for name in ("group_action", "ungroup_action", "lock_action", "unlock_all_action"):
-            layout.addWidget(action_button(getattr(self, name), page))
+        self._subsection(layout, "그룹 · 그룹 해제 · 잠금 · 모두 잠금 해제")
+        layout.addLayout(icon_row([getattr(self, name) for name in
+                                   ("group_action", "ungroup_action", "lock_action", "unlock_all_action")], page))
         layout.addWidget(note("위치와 크기는 문서 픽셀 기준입니다. 그룹 안에서는 그룹을 기준으로 표시합니다."))
         layout.addStretch()
         return page
@@ -486,8 +503,8 @@ class Inspector:
         self.inspector_layers.itemDoubleClicked.connect(self._layer_double_clicked)
         layout.addWidget(self.inspector_layers, 1)
         grid, self.inspector_layer_buttons = self._icon_buttons((
-            ("맨 앞", "front", "맨 앞으로"), ("앞으로", "raise", "한 단계 앞으로"),
-            ("뒤로", "lower", "한 단계 뒤로"), ("맨 뒤", "back", "맨 뒤로")), self.reorder, columns=2)
+            ("layer-front", "front", "맨 앞으로"), ("layer-forward", "raise", "한 단계 앞으로"),
+            ("layer-backward", "lower", "한 단계 뒤로"), ("layer-back", "back", "맨 뒤로")), self.reorder)
         layout.addLayout(grid)
         layout.addWidget(action_button(self.lock_action, page))
         self._layer_signature = None
@@ -657,10 +674,7 @@ class Inspector:
             with quiet(self.inspector_align):
                 aligns = {paragraph.align for paragraph in paragraphs}
                 self.inspector_align.setCurrentIndex(["left", "center", "right"].index(next(iter(aligns))) if len(aligns) == 1 else -1)
-                vertical = all(obj.writing_mode == "vertical-rl" for obj in objects)
-                labels = ["위쪽 정렬", "가운데 정렬", "아래쪽 정렬"] if vertical else ["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"]
-                for index, label in enumerate(labels):
-                    self.inspector_align.setItemText(index, label)
+                show_text_alignment(self.inspector_align, all(obj.writing_mode == "vertical-rl" for obj in objects))
             for key, field in self.inspector_paragraph.items():
                 self._inspector_value(field, [getattr(value, key) for value in (objects if key == "margin" else paragraphs)])
             self.inspector_letter_spacing.set_value(same([style.letter_spacing for style in styles]))

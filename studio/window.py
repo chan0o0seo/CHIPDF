@@ -31,6 +31,7 @@ from .link_tools import LinkTools
 from .ui.ribbon import OfficeRibbon
 from .ui.theme import apply_theme
 from .ui.page_list import PageList
+from .ui.controls import BOX_ALIGN_ITEMS, TEXT_ALIGN_ITEMS, show_text_alignment
 from . import APP_NAME, __version__
 
 
@@ -189,14 +190,13 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.format_bar.addActions([self.bold_action, self.italic_action, self.underline_action])
         self.color_action = self.action("글자색", self.choose_color)
         self.format_bar.addAction(self.color_action)
-        self.align_box = QComboBox()
-        self.align_box.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
+        from .ui.controls import SegmentedButtons
+        self.align_box = SegmentedButtons(TEXT_ALIGN_ITEMS)
+        self.align_box.setAccessibleName("문단 정렬")
         self.align_box.activated.connect(self.format_alignment)
         self.format_bar.addWidget(self.align_box)
-        self.vertical_align_box = QComboBox()
-        self.vertical_align_box.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        self.vertical_align_box = SegmentedButtons(BOX_ALIGN_ITEMS)
         self.vertical_align_box.setAccessibleName("상자 안 글자 세로 정렬")
-        self.vertical_align_box.setPlaceholderText("글자 세로 정렬")
         self.vertical_align_box.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
         self.vertical_align_box.setMinimumWidth(0)
         self.vertical_align_box.activated.connect(self.format_vertical_alignment)
@@ -446,8 +446,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             self.size_box.setValue(style.size)
             self.align_box.setCurrentIndex(["left", "center", "right"].index(item.model.paragraphs[0].align))
             vertical = item.model.writing_mode == 'vertical-rl'
-            for i, label in enumerate(['위쪽 정렬', '가운데 정렬', '아래쪽 정렬'] if vertical else ['왼쪽 정렬', '가운데 정렬', '오른쪽 정렬']):
-                self.align_box.setItemText(i, label)
+            show_text_alignment(self.align_box, vertical)
             if hasattr(self, 'vertical_action'):
                 self.vertical_action.setChecked(all(i.model.writing_mode == 'vertical-rl' for i in selected))
             for widget in (self.font_box, self.size_box, self.align_box):
