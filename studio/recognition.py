@@ -73,7 +73,10 @@ def recognize(original: bytes, cancelled, progress, vertical=False, clean_backgr
     source = Image.open(io.BytesIO(original)).convert("RGBA")
     ratio = min(2.0, 2400 / max(source.size))
     ratio = max(.3, ratio)
-    sample = source.convert("RGB").resize((round(source.width * ratio), round(source.height * ratio)), Image.Resampling.LANCZOS)
+    # Transparent pixels would otherwise read as black and hide the letters drawn over them.
+    white = Image.new("RGBA", source.size, "white")
+    white.alpha_composite(source)
+    sample = white.convert("RGB").resize((round(source.width * ratio), round(source.height * ratio)), Image.Resampling.LANCZOS)
     progress("카드의 글자를 읽고 있습니다…")
     groups = {}
     with PyTessBaseAPI(path=str(model_path()), lang="jpn_vert" if vertical else "jpn",
@@ -257,6 +260,9 @@ def _make_patch(source, mask, cancelled=None, progress=None, engine='legacy', mo
     elif engine == 'lama':
         from .inpaint_engine import restore_lama
         restored = restore_lama(source, binary, cancelled, progress, model_path=model_path)
+        if restored.mode == 'RGBA' and source.getchannel('A').crop((max(0, x0-4), max(0, y0-4), x1+4, y1+4)).getextrema()[0] < 255:
+            # The model restores colour only; take alpha from the surroundings like the legacy fill.
+            restored.putalpha(restore_mask(source, binary, cancelled).getchannel('A'))
     else:
         raise ValueError('지원하지 않는 배경 복원 방식입니다.')
     _check_cancel(cancelled)
@@ -297,7 +303,8 @@ def restore_mask(source, mask, cancelled=None, progress=None):
         raise ValueError("복원할 글자 영역이 없거나 너무 큽니다.")
     x0, y0, x1, y1 = bounds
     box = (max(0, x0-4), max(0, y0-4), min(source.width, x1+4), min(source.height, y1+4))
-    crop = source.convert("RGB").crop(box)
+    # Alpha is filled with the colour so letters over a translucent card leave no opaque trace.
+    crop = source.crop(box)
     local_mask = mask.crop(box)
     width, height = crop.size
     pending = bytearray(1 if value else 0 for value in local_mask.tobytes())
@@ -320,7 +327,7 @@ def restore_mask(source, mask, cancelled=None, progress=None):
             x, y = frontier.popleft()
             neighbors = [pixels[x+dx, y+dy] for dx, dy in directions if 0 <= x+dx < width and 0 <= y+dy < height and pending[(y+dy)*width+x+dx] == 0]
             if neighbors:
-                layer.append((x, y, tuple(round(sum(p[c] for p in neighbors) / len(neighbors)) for c in range(3))))
+                layer.append((x, y, tuple(round(sum(p[c] for p in neighbors) / len(neighbors)) for c in range(4))))
         for x, y, color in layer:
             pixels[x, y] = color
             pending[y*width+x] = 0
@@ -335,10 +342,8 @@ def restore_mask(source, mask, cancelled=None, progress=None):
     for _ in range(32):
         _check_cancel(cancelled)
         crop.paste(crop.filter(ImageFilter.GaussianBlur(.85)), (0, 0), local_mask)
-    result = source.convert("RGBA")
-    restored = crop.convert("RGBA")
-    restored.putalpha(source.getchannel("A").crop(box))
-    result.paste(restored, box[:2], local_mask)
+    result = source.copy()
+    result.paste(crop, box[:2], local_mask)
     return result
 
 

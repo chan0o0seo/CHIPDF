@@ -9,12 +9,22 @@ from bisect import bisect_left
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTextBoundaryFinder
-from PySide6.QtGui import (QColor, QFontMetricsF, QPen, QTextBlockFormat,
+from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QPainterPath, QPen, QTextBlockFormat,
                           QTextCursor, QTextLayout)
 
 
 _ROTATED = frozenset("()[]{}（）［］｛｝〈〉《》「」『』【】〔〕〖〗〘〙〚〛ー―—–─…‥〜～")
 _CORNER = frozenset("、。，．")
+
+
+def glyph_path(layout, origin):
+    """Outline of a laid-out line, for stroking text the same in raster and PDF."""
+    path = QPainterPath()
+    for run in layout.glyphRuns():
+        font = run.rawFont()
+        for index, position in zip(run.glyphIndexes(), run.positions()):
+            path.addPath(font.pathForGlyph(index).translated(position + origin))
+    return path
 
 
 def grapheme_spans(text):
@@ -138,12 +148,17 @@ class VerticalLayout:
         self.content_height = max((column.used for column in self.columns), default=0.0)
 
     def _make_glyph(self, start, end, text, fmt):
+        from .richtext import letter_spacing_from
         font = fmt.font().resolve(self.document.defaultFont())
         underline, strike = font.underline(), font.strikeOut()
         # Decorations follow the vertical writing direction instead of being
         # drawn as a separate horizontal dash under every character.
         font.setUnderline(False)
         font.setStrikeOut(False)
+        # Letter spacing runs along the column, not across the glyph.
+        spacing = letter_spacing_from(fmt)
+        if spacing:
+            font.setLetterSpacing(QFont.PercentageSpacing, 100)
         layout = QTextLayout(text if text != "\t" else "\u3000", font)
         option = self.document.defaultTextOption()
         option.setUseDesignMetrics(True)
@@ -155,9 +170,10 @@ class VerticalLayout:
         layout.endLayout()
         em = max(1.0, QFontMetricsF(font).horizontalAdvance("\u3000"))
         cell = max(em, line.naturalTextWidth())
+        advance = max(em * .3, cell + em * spacing / 1000)
         color = fmt.foreground().color() if fmt.foreground().style() != Qt.NoBrush else QColor("#253345")
         background = fmt.background().color() if fmt.background().style() != Qt.NoBrush else None
-        return _Glyph(start, end, text, layout, cell, cell, color, background, underline, strike)
+        return _Glyph(start, end, text, layout, cell, advance, color, background, underline, strike)
 
     def _place_column(self, column, right, available):
         spare = max(0.0, available - column.used)
@@ -225,16 +241,22 @@ class VerticalLayout:
                            key=lambda value: abs(value[1].top() - y))[0]
         return position
 
-    def paint(self, painter, selection_start=None, selection_end=None):
-        low, high = sorted((selection_start or 0, selection_end or 0))
+    def paint(self, painter, selection_start=None, selection_end=None, color=None, outline=None, highlight=None):
+        """Draw the glyphs; ``color``/``outline``/``highlight`` draw effect passes only."""
+        if highlight is not None:
+            for glyph in self.glyphs:
+                painter.fillRect(glyph.rect, highlight)
+            return
+        effect = color is not None or outline is not None
+        low, high = sorted((selection_start or 0, selection_end or 0)) if not effect else (0, 0)
         selection_color = QColor("#3478c4")
         painter.save()
         for glyph in self.glyphs:
             selected = low < glyph.end and high > glyph.start
-            if selected or glyph.background is not None:
+            if not effect and (selected or glyph.background is not None):
                 painter.fillRect(glyph.rect, selection_color if selected else glyph.background)
             painter.save()
-            painter.setPen(QColor("white") if selected else glyph.color)
+            painter.setPen(color if color is not None else QColor("white") if selected else glyph.color)
             line = glyph.layout.lineAt(0)
             center = glyph.rect.center()
             painter.translate(center)
@@ -246,10 +268,16 @@ class VerticalLayout:
                 # Move the original glyph's lower-left ink into the upper-right
                 # corner, without depending on rare vertical-form font glyphs.
                 x += glyph.width * 0.48
-                y -= glyph.advance * 0.48
-            glyph.layout.draw(painter, QPointF(x, y))
+                y -= glyph.width * 0.48
+            if outline is not None:
+                painter.strokePath(glyph_path(glyph.layout, QPointF(x, y)), outline)
+            if color is not None or outline is None:
+                glyph.layout.draw(painter, QPointF(x, y))
             painter.restore()
-            painter.setPen(QPen(QColor("white") if selected else glyph.color, max(1.0, glyph.width / 22)))
+            if outline is not None and color is None:
+                continue
+            painter.setPen(QPen(color if color is not None else QColor("white") if selected else glyph.color,
+                                max(1.0, glyph.width / 22)))
             if glyph.underline:
                 x = glyph.rect.right() - 1
                 painter.drawLine(QPointF(x, glyph.rect.top()), QPointF(x, glyph.rect.bottom()))

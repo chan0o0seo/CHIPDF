@@ -17,6 +17,13 @@ from .object_items import decode_image, validate_images
 from .recognition import validate_patches
 from .richtext import char_format
 
+def refresh_item(item):
+    # Effects can change how far an item paints outside its box.
+    if hasattr(item, "apply_text_settings"):
+        item.apply_text_settings()
+    item.refresh()
+
+
 MIME = "application/x-translation-studio-objects-v6"
 OBJECT_MIMES = (MIME, "application/x-translation-studio-objects-v4", "application/x-translation-studio-objects-v3")
 
@@ -254,7 +261,7 @@ class Editing:
             setattr(item.model, name, value)
             if isinstance(item.model, GroupBox) and name == "opacity":
                 item.setOpacity(value)
-            item.update()
+            refresh_item(item)
         self.finish_operation(label)
 
     def color_object(self, key):
@@ -410,25 +417,56 @@ class Editing:
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         if dialog.exec() == QDialog.Accepted:
-            self.finish_edit()
-            self.begin_operation()
             values = {key: field.value() for key, field in fields.items()}
-            if isinstance(obj, GroupBox):
-                values["scale"] = max(.0001, min(10000, values["width"]/obj.width if abs(values["width"]-obj.width*obj.scale) > .01 else values["height"]/obj.height))
-                del values["width"], values["height"]
-            else:
-                values["width"] /= obj.scale
-                values["height"] /= obj.scale
-            if isinstance(obj, ImageBox) and obj.aspect_locked:
-                if values["width"] != obj.width:
-                    values["height"] = max(24, min(16000, values["width"]*obj.height/obj.width))
-                else:
-                    values["width"] = max(24, min(16000, values["height"]*obj.width/obj.height))
             values["opacity"] /= 100
-            for key, value in values.items():
-                setattr(obj, key, value)
-            self.rebuild_scene([obj.id])
-            self.finish_operation("위치·크기")
+            self.apply_geometry(obj, values)
+
+    def apply_geometry(self, obj, values):
+        """Apply displayed x/y/width/height/rotation values (scaled sizes) to one object."""
+        self.finish_edit()
+        self.begin_operation()
+        values = dict(values)
+        width = values.pop("width", obj.width*obj.scale)
+        height = values.pop("height", obj.height*obj.scale)
+        if isinstance(obj, GroupBox):
+            values["scale"] = max(.0001, min(10000, width/obj.width if abs(width-obj.width*obj.scale) > .01 else height/obj.height))
+        else:
+            width, height = width/obj.scale, height/obj.scale
+            if isinstance(obj, ImageBox) and obj.aspect_locked:
+                if abs(width-obj.width) > .01:
+                    height = max(24, min(16000, width*obj.height/obj.width))
+                else:
+                    width = max(24, min(16000, height*obj.width/obj.height))
+            values["width"], values["height"] = max(24, min(16000, width)), max(24, min(16000, height))
+        for key, value in values.items():
+            setattr(obj, key, value)
+        self.rebuild_scene([obj.id])
+        self.finish_operation("위치·크기")
+
+    def set_properties(self, values, label, items=None):
+        """Set several properties on the selection as one undo step."""
+        self.finish_edit()
+        items = self.mutable_selection() if items is None else items
+        if not items or any(not hasattr(i.model, name) for i in items for name in values):
+            return
+        self.begin_operation()
+        for item in items:
+            for name, value in values.items():
+                setattr(item.model, name, value)
+            if isinstance(item.model, GroupBox) and "opacity" in values:
+                item.setOpacity(values["opacity"])
+            refresh_item(item)
+        self.finish_operation(label)
+
+    def preview_properties(self, values):
+        """Show values during a slider drag; the drag's undo step is opened and closed by the caller."""
+        for item in self.mutable_selection():
+            if all(hasattr(item.model, name) for name in values):
+                for name, value in values.items():
+                    setattr(item.model, name, value)
+                if isinstance(item.model, GroupBox) and "opacity" in values:
+                    item.setOpacity(values["opacity"])
+                refresh_item(item)
 
     def select_all(self):
         item = self.editing_item()

@@ -104,13 +104,14 @@ class OfficeRibbon:
             'open': 'open', 'save': 'save', 'save_as': 'save', 'export': 'export',
             'undo': 'undo', 'redo': 'redo', 'copy': 'copy', 'cut': 'cut', 'paste': 'paste',
             'add': 'text', 'image': 'image', 'duplicate': 'duplicate', 'delete': 'delete',
-            'bold': 'bold', 'italic': 'italic', 'underline': 'underline', 'color': 'color',
+            'bold': 'bold', 'italic': 'italic', 'underline': 'underline', 'strike': 'strikethrough', 'color': 'color',
+            'copy_style': 'format-painter', 'paste_style': 'format-painter', 'unlock_all': 'unlock',
             'fill': 'shape', 'paragraph': 'paragraph', 'vertical': 'vertical',
             'select_tool': 'select', 'region': 'ocr', 'translate': 'translate',
             'reread': 'ocr', 'vertical_ocr': 'vertical', 'translate_all': 'translate',
             'brush': 'brush', 'stamp': 'stamp', 'apply_erase': 'brush', 'cancel_region': 'check',
             'source': 'panel', 'page_link': 'link', 'restore_links': 'link',
-            'compare': 'compare', 'group': 'group', 'ungroup': 'group', 'lock': 'lock',
+            'compare': 'compare', 'group': 'group', 'ungroup': 'ungroup', 'lock': 'lock',
             'geometry': 'settings', 'snap': 'align', 'font_favorite': 'star',
             'folder': 'folder', 'append': 'open', 'leave_group': 'check',
             'translation_settings': 'settings', 'chrome_connect': 'translate',
@@ -121,7 +122,7 @@ class OfficeRibbon:
                 action.setIcon(icon(symbol))
         for action in (self.shape_fill, self.shape_clear, self.shape_stroke):
             action.setIcon(icon('shape'))
-        for action, symbol in zip(self.image_tools, ('image', 'fit', 'compare', 'compare', 'lock')):
+        for action, symbol in zip(self.image_tools, ('image', 'crop', 'flip-h', 'flip-v', 'lock')):
             action.setIcon(icon(symbol))
 
         # Preserve all original menu actions and shortcuts, including infrequent tools.

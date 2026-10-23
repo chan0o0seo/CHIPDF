@@ -273,7 +273,7 @@ class DocumentLayoutTests(unittest.TestCase):
                 self.app.setFont(QFont('Malgun Gothic', font_size))
                 self.editor.resize(window_width, 700)
                 self.editor.resizeDocks([self.editor.source_dock], [panel_width], Qt.Horizontal)
-                for key in ['source', 'format', 'layout', 'links']:
+                for key in ['source', 'format', 'layout', 'layers', 'links']:
                     self.editor.show_inspector(key)
                     for _ in range(5):
                         self.app.processEvents()

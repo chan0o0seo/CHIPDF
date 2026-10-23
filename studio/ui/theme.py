@@ -490,6 +490,52 @@ QLabel#inspectorNotice {
     border-radius: 6px;
     padding: 10px;
 }
+QLabel#inspectorSubTitle, QLabel#paletteTitle {
+    color: $textSecondary;
+    font-size: ${smallFontSize}pt;
+    padding: 4px 0 0 0;
+}
+QWidget#colorPalette {
+    background: $panelSurface;
+}
+QToolBar#selectionBar {
+    background: $panelSurface;
+    border: none;
+    border-bottom: 1px solid $divider;
+    spacing: 2px;
+    padding: 4px 8px;
+}
+QToolBar#selectionBar QToolButton {
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+QToolBar#selectionBar QToolButton:hover, QToolBar#selectionBar QToolButton:checked {
+    background: $accentSoft;
+}
+QToolBar#selectionBar QToolButton::menu-indicator {
+    image: none;
+    width: 0;
+}
+QLabel#selectionBarHint {
+    color: $textSecondary;
+    padding: 0 6px;
+}
+QWidget#barPopover {
+    background: $panelSurface;
+}
+QListWidget#layerList {
+    border: 1px solid $divider;
+    border-radius: 6px;
+    background: $panelSurface;
+}
+QListWidget#layerList::item {
+    padding: 7px 8px;
+    border-bottom: 1px solid $divider;
+}
+QListWidget#layerList::item:selected {
+    background: $accentSoft;
+    color: $text;
+}
 QLabel#sourceCrop {
     background: $appBackground;
     border: 1px solid $divider;

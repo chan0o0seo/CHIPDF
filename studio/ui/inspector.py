@@ -1,14 +1,19 @@
 """Selection inspector, composed around the editor's existing edit commands."""
 from contextlib import contextmanager
+import math
 
-from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QFont, QTextCharFormat
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFontComboBox,
-                              QFormLayout, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-                              QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QTextCharFormat
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox,
+                              QFormLayout, QGridLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+                              QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTabBar,
                               QToolButton, QVBoxLayout, QWidget)
 
 from ..model import GroupBox, ImageBox, ShapeBox, TextBox
+from ..richtext import letter_spacing_from, letter_spacing_percent
+from .controls import (BOX_ALIGN_ITEMS, TEXT_ALIGN_ITEMS, ColorButton, SegmentedButtons, SliderField,
+                       show_text_alignment, text_box_options)
+from .icons import icon
 
 
 @contextmanager
@@ -18,6 +23,11 @@ def quiet(widget):
         yield widget
     finally:
         widget.blockSignals(previous)
+
+
+def same(values):
+    """The shared value of a selection, or None when it is mixed or empty."""
+    return values[0] if values and all(value == values[0] for value in values[1:]) else None
 
 
 def note(text, name="inspectorHint"):
@@ -31,6 +41,25 @@ def section(layout, title):
     label = QLabel(title)
     label.setObjectName("inspectorSectionTitle")
     layout.addWidget(label)
+    return label
+
+
+def icon_row(actions, parent):
+    """Icon-only buttons for actions; names stay in tooltips and for screen readers."""
+    row = QHBoxLayout()
+    row.setSpacing(4)
+    for action in actions:
+        button = QToolButton(parent)
+        button.setDefaultAction(action)
+        button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        button.setIconSize(QSize(20, 20))
+        button.setAutoRaise(True)
+        button.setToolTip(action.toolTip() or action.text())
+        button.setAccessibleName(action.text())
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setMinimumHeight(32)
+        row.addWidget(button)
+    return row
 
 
 def action_button(action, parent):
@@ -75,7 +104,7 @@ class InspectorPanel(QWidget):
     """Four persistent pages; a selector replaces tabs when space is tight."""
 
     sections = (("source", "원문·번역"), ("format", "서식"),
-                ("layout", "배치"), ("links", "링크"))
+                ("layout", "배치"), ("layers", "레이어"), ("links", "링크"))
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -134,8 +163,10 @@ class Inspector:
         self.source_panel.setParent(None)
         self.inspector = InspectorPanel(self.source_dock)
         self.inspector.add_page(self.source_panel)
+        self.recent_colors = []
         self.inspector.add_page(self._make_format_page())
         self.inspector.add_page(self._make_layout_page())
+        self.inspector.add_page(self._make_layers_page())
         self.inspector.add_page(self._make_links_page())
         self.source_dock.setWidget(self.inspector)
         self.source_dock.setMinimumWidth(280)
@@ -155,6 +186,14 @@ class Inspector:
         self.update_inspector()
         self.restore_canvas_view(view)
 
+    def show_effects(self):
+        """Open the format page scrolled to the text effects, as design tools open an effects panel."""
+        self.show_inspector("format")
+        QApplication.processEvents()
+        scroll = self.inspector.stack.currentWidget()
+        title = self.inspector_effects_title
+        scroll.verticalScrollBar().setValue(title.mapTo(scroll.widget(), title.rect().topLeft()).y() - 8)
+
     def _inspector_page(self):
         page = QWidget()
         page.setObjectName("inspectorPage")
@@ -171,6 +210,80 @@ class Inspector:
         form.setSpacing(8)
         return form
 
+    def _slider(self, form, label, name, lower, upper, suffix="", factor=1.0, decimals=0, step=1, title=None):
+        """A property slider: dragging previews, release records one undo step."""
+        field = SliderField(lower, upper, suffix, decimals, step)
+        field.setAccessibleName(label)
+        field.dragStarted.connect(self.begin_operation)
+        field.previewed.connect(lambda value: self.preview_properties({name: value * factor}))
+        field.committed.connect(lambda value: self._commit_properties({name: value * factor}, title or label))
+        form.addRow(label, field)
+        return field
+
+    def _commit_properties(self, values, label):
+        self.set_properties(values, label)
+        if self.operation_before is not None:
+            self.finish_operation(label)
+
+    def _color_button(self, title, allow_none=False):
+        button = ColorButton(title, allow_none, self.palette_colors, self.canvas.start_color_pick)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        return button
+
+    def palette_colors(self):
+        """Colours already used on this page, then recently picked ones."""
+        found = []
+        page = self.current_page if self.project else None
+        for obj in page.objects if page else []:
+            values = [getattr(obj, key, "") for key in ("fill", "stroke", "highlight", "outline_color", "border_color")]
+            if isinstance(obj, TextBox):
+                values += [run.style.color for paragraph in obj.paragraphs for run in paragraph.runs]
+            for value in values:
+                if isinstance(value, str) and value.startswith("#") and value.lower() not in found:
+                    found.append(value.lower())
+        return found, list(self.recent_colors)
+
+    def remember_color(self, color):
+        if color.startswith("#"):
+            self.recent_colors = [color] + [c for c in self.recent_colors if c != color][:9]
+
+    def _picked(self, name, label):
+        def apply(color):
+            self.remember_color(color)
+            self.set_property(name, color, label)
+        return apply
+
+    def _text_color_picked(self, color):
+        self.remember_color(color)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        self.apply_format(fmt)
+
+    def _letter_spacing_committed(self, value):
+        fmt = QTextCharFormat()
+        fmt.setFontLetterSpacingType(QFont.PercentageSpacing)
+        fmt.setFontLetterSpacing(100 + letter_spacing_percent(value))
+        self.apply_format(fmt)
+
+    def _shadow_offset(self):
+        distance = self.inspector_shadow_distance.value()
+        angle = math.radians(self.inspector_shadow_angle.value())
+        return {"shadow_dx": round(distance * math.cos(angle), 2), "shadow_dy": round(distance * math.sin(angle), 2)}
+
+    def _shadow_slider(self, form, label, lower, upper, suffix):
+        field = SliderField(lower, upper, suffix)
+        field.setAccessibleName(label)
+        field.dragStarted.connect(self.begin_operation)
+        field.previewed.connect(lambda _value: self.preview_properties(self._shadow_offset()))
+        field.committed.connect(lambda _value: self._commit_properties(self._shadow_offset(), "그림자 위치"))
+        form.addRow(label, field)
+        return field
+
+    def _subsection(self, layout, title):
+        label = QLabel(title)
+        label.setObjectName("inspectorSubTitle")
+        layout.addWidget(label)
+
     def _make_format_page(self):
         page, layout = self._inspector_page()
         self.inspector_format_state = note("텍스트, 그림 또는 도형을 선택하세요.", "inspectorNotice")
@@ -180,42 +293,43 @@ class Inspector:
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(10)
         section(text_layout, "글꼴")
-        form = self._inspector_form()
         self.inspector_font = QFontComboBox()
         self.inspector_font.setMinimumWidth(0)
         self.inspector_font.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.inspector_font.setAccessibleName("글꼴")
+        self.inspector_font.setToolTip("목록의 글꼴 이름은 그 글꼴로 미리 보여 줍니다.")
         self.inspector_font.activated.connect(self._inspector_font_changed)
-        form.addRow("글꼴", self.inspector_font)
+        text_layout.addWidget(self.inspector_font)
+        row = QHBoxLayout()
+        row.setSpacing(6)
         self.inspector_size = InspectorSpinBox()
         self.inspector_size.setRange(1, 400)
         self.inspector_size.setDecimals(1)
         self.inspector_size.setSuffix(" pt")
         self.inspector_size.setKeyboardTracking(False)
+        self.inspector_size.setAccessibleName("글자 크기")
         self.inspector_size.userValueChanged.connect(self.format_size)
-        form.addRow("크기", self.inspector_size)
-        text_layout.addLayout(form)
-        flags = QGridLayout()
-        flags.setSpacing(4)
-        for index, name in enumerate(("bold_action", "italic_action", "underline_action", "strike_action")):
-            action = getattr(self, name, None)
-            if action:
-                flags.addWidget(action_button(action, page), index // 2, index % 2)
-        text_layout.addLayout(flags)
-        color = QPushButton("글자색 선택…")
-        color.clicked.connect(self.choose_color)
-        text_layout.addWidget(color)
+        row.addWidget(self.inspector_size, 1)
+        self.inspector_text_color = self._color_button("글자색")
+        self.inspector_text_color.picked.connect(self._text_color_picked)
+        row.addWidget(self.inspector_text_color, 1)
+        text_layout.addLayout(row)
+        text_layout.addLayout(icon_row([getattr(self, name) for name in
+                                        ("bold_action", "italic_action", "underline_action", "strike_action")
+                                        if getattr(self, name, None)], page))
         section(text_layout, "문단")
-        self.inspector_align = QComboBox()
-        self.inspector_align.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        self.inspector_align = SegmentedButtons(TEXT_ALIGN_ITEMS)
+        self.inspector_align.setAccessibleName("문단 정렬")
         self.inspector_align.activated.connect(self.format_alignment)
-        text_layout.addWidget(self.inspector_align)
-        self.inspector_vertical_align = QComboBox()
-        self.inspector_vertical_align.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        row.addWidget(self.inspector_align)
+        self.inspector_vertical_align = SegmentedButtons(BOX_ALIGN_ITEMS)
         self.inspector_vertical_align.setAccessibleName("상자 안 글자 세로 정렬")
-        self.inspector_vertical_align.setPlaceholderText("혼합")
         self.inspector_vertical_align.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
         self.inspector_vertical_align.activated.connect(self.format_vertical_alignment)
-        text_layout.addWidget(self.inspector_vertical_align)
+        row.addWidget(self.inspector_vertical_align)
+        text_layout.addLayout(row)
         form = self._inspector_form()
         self.inspector_paragraph = {}
         for key, label, lower, upper, step, suffix in (
@@ -232,12 +346,48 @@ class Inspector:
             field.userValueChanged.connect(lambda value, k=key: self.apply_paragraph_settings({k: value}))
             self.inspector_paragraph[key] = field
             form.addRow(label, field)
+        self.inspector_letter_spacing = SliderField(-200, 800, "", step=10, live=False)
+        self.inspector_letter_spacing.setAccessibleName("자간")
+        self.inspector_letter_spacing.setToolTip("글자 사이 간격 · 1/1000 em")
+        self.inspector_letter_spacing.committed.connect(self._letter_spacing_committed)
+        form.addRow("자간", self.inspector_letter_spacing)
         text_layout.addLayout(form)
-        text_layout.addWidget(note("간격과 여백은 선택한 상자의 모든 문단에 적용됩니다."))
-        for name in ("vertical_action", "fill_action", "copy_style_action", "paste_style_action"):
-            action = getattr(self, name, None)
-            if action:
-                text_layout.addWidget(action_button(action, page))
+        self.inspector_auto_width, self.inspector_char_wrap = text_box_options(self, [])
+        text_layout.addWidget(self.inspector_auto_width)
+        text_layout.addWidget(self.inspector_char_wrap)
+
+        self.inspector_effects_title = section(text_layout, "효과")
+        form = self._inspector_form()
+        self.inspector_outline_color = self._color_button("외곽선 색")
+        self.inspector_outline_color.picked.connect(self._picked("outline_color", "외곽선 색"))
+        form.addRow("외곽선", self.inspector_outline_color)
+        self.inspector_outline_width = self._slider(form, "두께", "outline_width", 0, 20, " px", decimals=1, step=.5, title="외곽선 두께")
+        self.inspector_shadow = QCheckBox("그림자")
+        self.inspector_shadow.toggled.connect(lambda checked: self.set_property("shadow_enabled", checked, "그림자"))
+        self.inspector_shadow_color = self._color_button("그림자 색")
+        self.inspector_shadow_color.picked.connect(self._picked("shadow_color", "그림자 색"))
+        form.addRow(self.inspector_shadow, self.inspector_shadow_color)
+        self.inspector_shadow_opacity = self._slider(form, "진하기", "shadow_opacity", 0, 100, " %", .01, title="그림자 진하기")
+        self.inspector_shadow_distance = self._shadow_slider(form, "거리", 0, 60, " px")
+        self.inspector_shadow_angle = self._shadow_slider(form, "방향", 0, 359, "°")
+        self.inspector_shadow_blur = self._slider(form, "흐림", "shadow_blur", 0, 40, " px", title="그림자 흐림")
+        self.inspector_highlight = self._color_button("글자 배경", allow_none=True)
+        self.inspector_highlight.picked.connect(self._picked("highlight", "글자 배경"))
+        form.addRow("글자 배경", self.inspector_highlight)
+        text_layout.addLayout(form)
+
+        section(text_layout, "투명도")
+        form = self._inspector_form()
+        self.inspector_text_opacity = self._slider(form, "글자", "text_opacity", 0, 100, " %", .01, title="글자 불투명도")
+        self.inspector_fill = self._color_button("상자 배경", allow_none=True)
+        self.inspector_fill.picked.connect(self._picked("fill", "상자 배경"))
+        form.addRow("상자 배경", self.inspector_fill)
+        self.inspector_fill_opacity = self._slider(form, "배경", "fill_opacity", 0, 100, " %", .01, title="배경 불투명도")
+        text_layout.addLayout(form)
+        self._subsection(text_layout, "세로쓰기 · 서식 복사 · 서식 붙여넣기")
+        text_layout.addLayout(icon_row([getattr(self, name) for name in
+                                        ("vertical_action", "copy_style_action", "paste_style_action")
+                                        if getattr(self, name, None)], page))
         layout.addWidget(self.inspector_text_controls)
 
         self.inspector_shape_controls = QWidget()
@@ -245,15 +395,15 @@ class Inspector:
         shapes.setContentsMargins(0, 0, 0, 0)
         shapes.setSpacing(8)
         section(shapes, "도형 서식")
-        for name in ("shape_fill", "shape_clear", "shape_stroke"):
-            shapes.addWidget(action_button(getattr(self, name), page))
-        self.inspector_stroke = InspectorSpinBox()
-        self.inspector_stroke.setRange(0, 30)
-        self.inspector_stroke.setSuffix(" px")
-        self.inspector_stroke.setKeyboardTracking(False)
-        self.inspector_stroke.userValueChanged.connect(lambda value: self.set_property("stroke_width", value, "선 두께"))
         form = self._inspector_form()
-        form.addRow("선 두께", self.inspector_stroke)
+        self.inspector_shape_fill = self._color_button("채우기", allow_none=True)
+        self.inspector_shape_fill.picked.connect(self._picked("fill", "도형 색"))
+        form.addRow("채우기", self.inspector_shape_fill)
+        self.inspector_shape_stroke = self._color_button("테두리")
+        self.inspector_shape_stroke.picked.connect(self._picked("stroke", "도형 테두리"))
+        form.addRow("테두리", self.inspector_shape_stroke)
+        self.inspector_stroke = self._slider(form, "선 두께", "stroke_width", 0, 30, " px", decimals=1, step=.5)
+        self.inspector_shape_opacity = self._slider(form, "불투명도", "opacity", 0, 100, " %", .01)
         shapes.addLayout(form)
         layout.addWidget(self.inspector_shape_controls)
 
@@ -264,9 +414,47 @@ class Inspector:
         section(images, "그림 서식")
         for action in self.image_tools:
             images.addWidget(action_button(action, page))
+        self._subsection(images, "조정")
+        form = self._inspector_form()
+        self.inspector_image_adjust = {}
+        for key, label in (("brightness", "밝기"), ("contrast", "대비"), ("saturation", "채도")):
+            self.inspector_image_adjust[key] = self._slider(form, label, key, -100, 100, "", title=f"이미지 {label}")
+        self.inspector_image_opacity = self._slider(form, "불투명도", "opacity", 0, 100, " %", .01)
+        images.addLayout(form)
+        self._subsection(images, "모양")
+        form = self._inspector_form()
+        self.inspector_corner = self._slider(form, "모서리", "corner_radius", 0, 300, " px", title="모서리 둥글게")
+        self.inspector_border_width = self._slider(form, "테두리", "border_width", 0, 30, " px", decimals=1, step=.5, title="테두리 두께")
+        self.inspector_border_color = self._color_button("테두리 색")
+        self.inspector_border_color.picked.connect(self._picked("border_color", "테두리 색"))
+        form.addRow("테두리 색", self.inspector_border_color)
+        images.addLayout(form)
         layout.addWidget(self.inspector_image_controls)
         layout.addStretch()
         return page
+
+    def _geometry_changed(self, key, value):
+        items = self.mutable_selection()
+        if len(items) == 1:
+            self.apply_geometry(items[0].model, {key: value})
+
+    def _icon_buttons(self, rows, handler, columns=4):
+        grid = QGridLayout()
+        grid.setSpacing(4)
+        buttons = []
+        for index, (name, mode, tip) in enumerate(rows):
+            button = QToolButton()
+            button.setIcon(icon(name))
+            button.setIconSize(QSize(20, 20))
+            button.setToolTip(tip)
+            button.setAccessibleName(tip)
+            button.setAutoRaise(True)
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            button.setMinimumHeight(32)
+            button.clicked.connect(lambda _=False, m=mode: handler(m))
+            grid.addWidget(button, index // columns, index % columns)
+            buttons.append(button)
+        return grid, buttons
 
     def _make_layout_page(self):
         page, layout = self._inspector_page()
@@ -275,34 +463,126 @@ class Inspector:
         section(layout, "위치와 크기")
         form = self._inspector_form()
         self.inspector_geometry = {}
-        for key, label in (("x", "가로 위치"), ("y", "세로 위치"), ("width", "너비"),
-                           ("height", "높이"), ("rotation", "회전")):
-            value = QLabel("—")
-            value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            form.addRow(label, value)
-            self.inspector_geometry[key] = value
-        self.inspector_opacity = InspectorSpinBox()
-        self.inspector_opacity.setRange(0, 100)
-        self.inspector_opacity.setDecimals(0)
-        self.inspector_opacity.setSuffix(" %")
-        self.inspector_opacity.setKeyboardTracking(False)
-        self.inspector_opacity.userValueChanged.connect(lambda value: self.set_property("opacity", value / 100, "불투명도"))
-        form.addRow("불투명도", self.inspector_opacity)
+        for key, label, suffix in (("x", "가로 위치", " px"), ("y", "세로 위치", " px"), ("width", "너비", " px"),
+                                   ("height", "높이", " px"), ("rotation", "회전", "°")):
+            field = InspectorSpinBox()
+            field.setRange(24 if key in ("width", "height") else -360 if key == "rotation" else -16000,
+                           360 if key == "rotation" else 16000)
+            field.setDecimals(1)
+            field.setSuffix(suffix)
+            field.setAccessibleName(label)
+            field.userValueChanged.connect(lambda value, k=key: self._geometry_changed(k, value))
+            form.addRow(label, field)
+            self.inspector_geometry[key] = field
+        self.inspector_opacity = self._slider(form, "불투명도", "opacity", 0, 100, " %", .01)
         layout.addLayout(form)
-        layout.addWidget(action_button(self.geometry_action, page))
-        section(layout, "정렬과 순서")
-        arrange = QToolButton()
-        arrange.setText("위치 맞춤 · 앞뒤 순서")
-        arrange.setMenu(self.arrange_menu)
-        arrange.setPopupMode(QToolButton.InstantPopup)
-        arrange.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        arrange.setMinimumHeight(32)
-        layout.addWidget(arrange)
-        for name in ("group_action", "ungroup_action", "lock_action", "unlock_all_action"):
-            layout.addWidget(action_button(getattr(self, name), page))
+        section(layout, "정렬")
+        grid, self.inspector_align_buttons = self._icon_buttons((
+            ("obj-align-left", "left", "왼쪽 맞춤"), ("obj-align-hcenter", "hcenter", "가로 가운데 맞춤"),
+            ("obj-align-right", "right", "오른쪽 맞춤"), ("distribute-h", "horizontal", "가로 간격 같게 (3개 이상)"),
+            ("obj-align-top", "top", "위쪽 맞춤"), ("obj-align-vcenter", "vcenter", "세로 가운데 맞춤"),
+            ("obj-align-bottom", "bottom", "아래쪽 맞춤"), ("distribute-v", "vertical", "세로 간격 같게 (3개 이상)")),
+            self.arrange)
+        layout.addLayout(grid)
+        layout.addWidget(note("하나만 선택하면 페이지(그룹 안에서는 그룹)를 기준으로 맞춥니다."))
+        section(layout, "순서")
+        grid, self.inspector_order_buttons = self._icon_buttons((
+            ("layer-front", "front", "맨 앞으로"), ("layer-forward", "raise", "한 단계 앞으로"),
+            ("layer-backward", "lower", "한 단계 뒤로"), ("layer-back", "back", "맨 뒤로")), self.reorder)
+        layout.addLayout(grid)
+        self._subsection(layout, "그룹 · 그룹 해제 · 잠금 · 모두 잠금 해제")
+        layout.addLayout(icon_row([getattr(self, name) for name in
+                                   ("group_action", "ungroup_action", "lock_action", "unlock_all_action")], page))
         layout.addWidget(note("위치와 크기는 문서 픽셀 기준입니다. 그룹 안에서는 그룹을 기준으로 표시합니다."))
         layout.addStretch()
         return page
+
+    def _make_layers_page(self):
+        page, layout = self._inspector_page()
+        layout.addWidget(note("위가 앞쪽입니다. 끌어서 순서를 바꾸고, 클릭해서 선택하세요.", "inspectorNotice"))
+        self.inspector_layers = QListWidget()
+        self.inspector_layers.setObjectName("layerList")
+        self.inspector_layers.setAccessibleName("레이어 목록")
+        self.inspector_layers.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.inspector_layers.setDragDropMode(QAbstractItemView.InternalMove)
+        self.inspector_layers.setDefaultDropAction(Qt.MoveAction)
+        self.inspector_layers.setMinimumHeight(260)
+        self.inspector_layers.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.inspector_layers.setTextElideMode(Qt.ElideRight)
+        self.inspector_layers.setUniformItemSizes(True)
+        self.inspector_layers.itemSelectionChanged.connect(self._layer_selection_changed)
+        self.inspector_layers.model().rowsMoved.connect(self._layers_moved)
+        self.inspector_layers.itemDoubleClicked.connect(self._layer_double_clicked)
+        layout.addWidget(self.inspector_layers, 1)
+        grid, self.inspector_layer_buttons = self._icon_buttons((
+            ("layer-front", "front", "맨 앞으로"), ("layer-forward", "raise", "한 단계 앞으로"),
+            ("layer-backward", "lower", "한 단계 뒤로"), ("layer-back", "back", "맨 뒤로")), self.reorder)
+        layout.addLayout(grid)
+        layout.addWidget(action_button(self.lock_action, page))
+        self._layer_signature = None
+        return page
+
+    def _layer_label(self, obj):
+        if isinstance(obj, TextBox):
+            text = " ".join(obj.text.split()) or "(빈 텍스트)"
+            label = "텍스트 · " + (text[:24] + "…" if len(text) > 24 else text)
+        elif isinstance(obj, ImageBox):
+            label = "그림"
+        elif isinstance(obj, ShapeBox):
+            label = {"rect": "사각형", "roundrect": "둥근 사각형", "ellipse": "원", "line": "선", "arrow": "화살표"}.get(obj.shape, "도형")
+        else:
+            label = "그룹"
+        return label + (" · 잠김" if obj.locked else "")
+
+    def _update_layers(self, objects):
+        if not hasattr(self, "inspector_layers"):
+            return
+        scope = sorted(self.scope_objects(), key=lambda obj: -obj.z) if self.project else []
+        signature = [(obj.id, self._layer_label(obj)) for obj in scope]
+        selected = {obj.id for obj in objects}
+        with quiet(self.inspector_layers):
+            if signature != self._layer_signature:
+                self.inspector_layers.clear()
+                for key, label in signature:
+                    row = QListWidgetItem(label)
+                    row.setData(Qt.UserRole, key)
+                    self.inspector_layers.addItem(row)
+                self._layer_signature = signature
+            for index in range(self.inspector_layers.count()):
+                row = self.inspector_layers.item(index)
+                row.setSelected(row.data(Qt.UserRole) in selected)
+
+    def _layer_selection_changed(self):
+        ids = {row.data(Qt.UserRole) for row in self.inspector_layers.selectedItems()}
+        scene = self.canvas.scene()
+        scene.blockSignals(True)
+        try:
+            scene.clearSelection()
+            for key in ids:
+                if key in self.items_by_id:
+                    self.items_by_id[key].setSelected(True)
+        finally:
+            scene.blockSignals(False)
+        scene.selectionChanged.emit()
+
+    def _layer_double_clicked(self, row):
+        item = self.items_by_id.get(row.data(Qt.UserRole))
+        if item is not None:
+            self.canvas.centerOn(item)
+
+    def _layers_moved(self, *_args):
+        ids = [self.inspector_layers.item(i).data(Qt.UserRole) for i in range(self.inspector_layers.count())]
+        objects = {obj.id: obj for obj in self.scope_objects()}
+        if set(ids) != set(objects):
+            return
+        self.finish_edit()
+        self.begin_operation()
+        # The list runs front to back; z runs back to front.
+        for z, key in enumerate(reversed(ids)):
+            objects[key].z = z
+            self.items_by_id[key].setZValue(z + 1)
+        self._layer_signature = None
+        self.finish_operation("레이어 순서")
 
     def _make_links_page(self):
         page, layout = self._inspector_page()
@@ -406,24 +686,67 @@ class Inspector:
             with quiet(self.inspector_align):
                 aligns = {paragraph.align for paragraph in paragraphs}
                 self.inspector_align.setCurrentIndex(["left", "center", "right"].index(next(iter(aligns))) if len(aligns) == 1 else -1)
-                vertical = all(obj.writing_mode == "vertical-rl" for obj in objects)
-                labels = ["위쪽 정렬", "가운데 정렬", "아래쪽 정렬"] if vertical else ["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"]
-                for index, label in enumerate(labels):
-                    self.inspector_align.setItemText(index, label)
+                show_text_alignment(self.inspector_align, all(obj.writing_mode == "vertical-rl" for obj in objects))
             for key, field in self.inspector_paragraph.items():
                 self._inspector_value(field, [getattr(value, key) for value in (objects if key == "margin" else paragraphs)])
+            self.inspector_letter_spacing.set_value(same([style.letter_spacing for style in styles]))
+            colors = {style.color for style in styles}
+            self.inspector_text_color.set_color(next(iter(colors)) if len(colors) == 1 else None)
+            self._update_text_effects(objects)
+            text_box_options(self, objects, self.inspector_auto_width, self.inspector_char_wrap)
         if all_shape:
-            self._inspector_value(self.inspector_stroke, [obj.stroke_width for obj in objects])
+            self.inspector_stroke.set_value(same([obj.stroke_width for obj in objects]))
+            self.inspector_shape_opacity.set_value(same([obj.opacity * 100 for obj in objects]))
+            self.inspector_shape_fill.set_color(same([obj.fill for obj in objects]))
+            self.inspector_shape_stroke.set_color(same([obj.stroke for obj in objects]))
+        if all_image:
+            for key, field in self.inspector_image_adjust.items():
+                field.set_value(same([getattr(obj, key) for obj in objects]))
+            self.inspector_image_opacity.set_value(same([obj.opacity * 100 for obj in objects]))
+            self.inspector_corner.set_value(same([obj.corner_radius for obj in objects]))
+            self.inspector_border_width.set_value(same([obj.border_width for obj in objects]))
+            self.inspector_border_color.set_color(same([obj.border_color for obj in objects]))
         self.inspector_opacity.setEnabled(mutable)
-        self._inspector_value(self.inspector_opacity, [obj.opacity * 100 for obj in objects])
-        for key, label in self.inspector_geometry.items():
+        self.inspector_opacity.set_value(same([obj.opacity * 100 for obj in objects]))
+        single = len(objects) == 1 and mutable
+        for key, field in self.inspector_geometry.items():
+            field.setEnabled(single)
             if len(objects) == 1:
                 obj = objects[0]
-                value = getattr(obj, key) * (obj.scale if key in ("width", "height") else 1)
-                label.setText(f"{value:,.1f}" + ("°" if key == "rotation" else " px"))
+                self._inspector_value(field, [getattr(obj, key) * (obj.scale if key in ("width", "height") else 1)])
             else:
-                label.setText("혼합" if objects else "—")
+                self._inspector_value(field, [] if not objects else [0, 1])
+        for button in self.inspector_align_buttons + self.inspector_order_buttons + self.inspector_layer_buttons:
+            button.setEnabled(mutable)
+        self._update_layers(objects)
         self._update_inspector_links(objects, mutable)
+
+    def _update_text_effects(self, objects):
+        self.inspector_outline_color.set_color(same([obj.outline_color for obj in objects]))
+        self.inspector_outline_width.set_value(same([obj.outline_width for obj in objects]))
+        shadows = {obj.shadow_enabled for obj in objects}
+        with quiet(self.inspector_shadow):
+            self.inspector_shadow.setTristate(len(shadows) > 1)
+            self.inspector_shadow.setCheckState(Qt.PartiallyChecked if len(shadows) > 1 else
+                                                Qt.Checked if True in shadows else Qt.Unchecked)
+        self.inspector_shadow_color.set_color(same([obj.shadow_color for obj in objects]))
+        self.inspector_shadow_opacity.set_value(same([obj.shadow_opacity * 100 for obj in objects]))
+        offsets = {(obj.shadow_dx, obj.shadow_dy) for obj in objects}
+        if len(offsets) == 1:
+            dx, dy = next(iter(offsets))
+            self.inspector_shadow_distance.set_value(round(math.hypot(dx, dy), 1))
+            self.inspector_shadow_angle.set_value(round(math.degrees(math.atan2(dy, dx)) % 360))
+        else:
+            self.inspector_shadow_distance.set_value(None)
+            self.inspector_shadow_angle.set_value(None)
+        self.inspector_shadow_blur.set_value(same([obj.shadow_blur for obj in objects]))
+        for field in (self.inspector_shadow_color, self.inspector_shadow_opacity, self.inspector_shadow_distance,
+                      self.inspector_shadow_angle, self.inspector_shadow_blur):
+            field.setEnabled(True in shadows)
+        self.inspector_highlight.set_color(same([obj.highlight for obj in objects]))
+        self.inspector_text_opacity.set_value(same([obj.text_opacity * 100 for obj in objects]))
+        self.inspector_fill.set_color(same([obj.fill for obj in objects]))
+        self.inspector_fill_opacity.set_value(same([obj.fill_opacity * 100 for obj in objects]))
 
     def _update_inspector_links(self, objects, mutable):
         obj = objects[0] if len(objects) == 1 and isinstance(objects[0], TextBox) else None

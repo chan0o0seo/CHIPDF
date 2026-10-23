@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QTextCursor
+from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QTextCursor, QTextOption
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QStyle
 
 from . import richtext
@@ -11,6 +11,7 @@ from .object_items import BoxInteraction, VisualItem, GroupItem
 from .vertical_editing import VerticalEditing
 from .stamp_tool import CloneStamp
 from .file_drop import dropped_paths
+from .text_effects import effect_extent, paint_effects
 
 
 class CardScene(QGraphicsScene):
@@ -72,6 +73,7 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         self.setDefaultTextColor(QColor(model.paragraphs[0].runs[0].style.color))
         richtext.populate(self.document(), model.paragraphs, model.margin)
         self.setTextWidth(model.width)
+        self.apply_wrap_mode()
         self.setPos(model.x, model.y)
         self.setTransformOriginPoint(model.width / 2, model.height / 2)
         self.setRotation(model.rotation)
@@ -124,24 +126,69 @@ class TextItem(VerticalEditing, BoxInteraction, QGraphicsTextItem):
         return result
 
 
+    def boundingRect(self):
+        extent = effect_extent(self.model)
+        return super().boundingRect().united(
+            QRectF(-extent, -extent, self.model.width + extent * 2, self.model.height + extent * 2))
+
     def paint(self, painter, option, widget=None):
-        box = QRectF(0, 0, self.model.width, self.model.height)
+        model = self.model
+        box = QRectF(0, 0, model.width, model.height)
         painter.save()
-        painter.setOpacity(painter.opacity()*self.model.opacity)
-        painter.setClipRect(box)
-        if self.model.fill != "transparent":
-            painter.fillRect(box, QColor(self.model.fill))
+        painter.setOpacity(painter.opacity()*model.opacity)
+        extent = effect_extent(model)
+        painter.setClipRect(box.adjusted(-extent, -extent, extent, extent))
+        if model.fill != "transparent":
+            painter.save()
+            painter.setOpacity(painter.opacity()*model.fill_opacity)
+            painter.fillRect(box, QColor(model.fill))
+            painter.restore()
+        painter.setOpacity(painter.opacity()*model.text_opacity)
         option.state &= ~QStyle.State_Selected
         if self.is_vertical:
+            paint_effects(self, painter)
             self.paint_vertical(painter)
         else:
             painter.translate(0, self.text_offset())
+            paint_effects(self, painter)
             super().paint(painter, option, widget)
         painter.restore()
         self.paint_controls(painter, self.has_overflow())
 
+    def apply_wrap_mode(self):
+        option = self.document().defaultTextOption()
+        option.setWrapMode(QTextOption.WrapAnywhere if self.model.wrap_mode == "char"
+                           else QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(option)
+
+    def fit_to_text(self):
+        """Grow or shrink an auto-width box to its unwrapped text, keeping its aligned edge."""
+        model = self.model
+        if not model.auto_width or self.is_vertical:
+            return
+        from .layout_tools import move_in_scene
+        document = self.document()
+        document.setTextWidth(-1)
+        width = max(24.0, min(16000.0, math.ceil(document.size().width()) + 1))
+        align = model.paragraphs[0].align
+        edge = {"left": 0, "center": .5, "right": 1}[align]
+        target = self.mapToScene(QPointF(model.width * edge, 0))
+        self.prepareGeometryChange()
+        model.width = width
+        self.setTextWidth(width)
+        model.height = max(24.0, min(16000.0, math.ceil(document.size().height())))
+        self.setTransformOriginPoint(width / 2, model.height / 2)
+        move_in_scene(self, target - self.mapToScene(QPointF(width * edge, 0)))
+        model.x, model.y = self.pos().x(), self.pos().y()
+        self.update()
+
+    def apply_text_settings(self):
+        self.apply_wrap_mode()
+        self.fit_to_text()
+
     def content_changed(self):
         self.model.paragraphs = richtext.extract(self.document(), self.defaultTextColor().name())
+        self.fit_to_text()
         if self.editing:
             self.model.target_origin = "manual"
             self.model.reviewed = False
@@ -210,6 +257,7 @@ class Canvas(CloneStamp, QGraphicsView):
         self._has_brush_selection = False
         self._pan_position = None
         self._pan_cursor = None
+        self._color_pick = None
         self.init_stamp()
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
@@ -360,7 +408,31 @@ class Canvas(CloneStamp, QGraphicsView):
             self._pan_cursor = None
             self.viewport().update()
 
+    def start_color_pick(self, callback):
+        """Eyedropper: the next left click samples the colour shown on screen."""
+        self._color_pick = callback
+        self.viewport().setCursor(Qt.CrossCursor)
+        self.editor.status.setText("색을 고를 곳을 클릭하세요 · Esc로 취소")
+        self.setFocus()
+
+    def cancel_color_pick(self):
+        if self._color_pick is not None:
+            self._color_pick = None
+            self.viewport().unsetCursor()
+            self.editor.status.setText("")
+
     def mousePressEvent(self, event):
+        if self._color_pick is not None:
+            event.accept()
+            if event.button() == Qt.LeftButton:
+                point = event.position().toPoint()
+                color = self.viewport().grab(QRect(point, QSize(1, 1))).toImage().pixelColor(0, 0)
+                callback = self._color_pick
+                self.cancel_color_pick()
+                callback(color.name())
+            else:
+                self.cancel_color_pick()
+            return
         if event.button() == Qt.MiddleButton or self._pan_position is not None:
             if event.buttons() == Qt.MiddleButton and self._pan_position is None:
                 self._pan_position = event.position().toPoint()
@@ -507,6 +579,11 @@ class Canvas(CloneStamp, QGraphicsView):
             super().wheelEvent(event)
 
     def keyPressEvent(self, event):
+        if self._color_pick is not None:
+            if event.key() == Qt.Key_Escape:
+                self.cancel_color_pick()
+            event.accept()
+            return
         if self.tool != "select":
             if event.key() == Qt.Key_Escape:
                 self.cancel_tool()

@@ -238,7 +238,8 @@ def render_page(page, original, *, overlay=False):
     return result
 
 
-def export_collection(project, assets, indices, destination, kind, cancel=None, progress=lambda value: None):
+def export_collection(project, assets, indices, destination, kind, cancel=None, progress=lambda value: None,
+                      text_mode='text', report=None):
     indices = sorted(set(indices))
     if not indices or any(i < 0 or i >= len(project.pages) for i in indices) or kind not in ('png', 'pdf'):
         raise ValueError('출력할 카드와 형식을 확인해 주세요.')
@@ -252,7 +253,7 @@ def export_collection(project, assets, indices, destination, kind, cancel=None, 
         stage = Path(temporary)
         if kind == 'pdf':
             from .source_pdf import export_pdf
-            export_pdf(project, assets, snapshot, stage / 'output.pdf', cancel, progress)
+            export_pdf(project, assets, snapshot, stage / 'output.pdf', cancel, progress, text_mode, report)
             check_cancel(cancel)
             os.replace(stage / 'output.pdf', destination)
             return destination

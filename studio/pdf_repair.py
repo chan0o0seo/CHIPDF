@@ -68,8 +68,49 @@ def prepare_pdf_repair(project, assets, paths, cancelled=None, progress=lambda v
                 obj.erase_patch, obj.erase_mask, obj.erase_rect = native
                 changed += 1
         progress(f'원래 PDF 배경 적용 준비 · {matched}장 · 원문 {changed}개')
-    if not matched:
+    positional = attach_by_position(trial, merged, imported, incoming)
+    if not matched and not positional:
         raise ValueError('현재 작업의 원본과 일치하는 PDF 페이지를 찾지 못했습니다. 작업에 사용한 원본 PDF를 선택해 주세요.')
     validate_bundle(trial, merged)
     check_cancel(cancelled)
-    return trial, merged, matched, changed
+    return trial, merged, matched, changed, positional
+
+
+def _ratio(page):
+    width, height = (page.width_pt, page.height_pt) if page.width_pt and page.height_pt else (page.width, page.height)
+    return width/height
+
+
+def attach_by_position(trial, merged, imported, incoming):
+    """Attach a source PDF page by page when pixels differ but the layout is the same.
+
+    Pages edited outside the editor (resized or re-composited backgrounds)
+    no longer match the PDF pixel for pixel. When exactly one selected PDF
+    has as many pages as the work and every unattached page keeps the
+    proportions of the source page at its position, link them in order and
+    print at the source's page size. Backgrounds and erase data are kept:
+    the export compares them with the source and adds only real changes.
+    """
+    groups = {}
+    for page in imported.pages:
+        groups.setdefault(page.source_file, []).append(page)
+    candidates = [pages for pages in groups.values()
+                  if len(pages) == len(trial.pages) and all(p.pdf_asset for p in pages)]
+    if len(candidates) != 1:
+        return 0
+    sources = candidates[0]
+    key = sources[0].pdf_asset
+    pending = [(index, page) for index, page in enumerate(trial.pages) if not page.pdf_asset]
+    # Pages already linked to this PDF must sit at their own position;
+    # otherwise the work was reordered and position says nothing.
+    if not pending or any(page.pdf_asset == key and page.pdf_page != index
+                          for index, page in enumerate(trial.pages)):
+        return 0
+    if any(abs(_ratio(page)-_ratio(sources[index])) > .001 for index, page in pending):
+        return 0
+    for index, page in pending:
+        source = sources[index]
+        page.pdf_asset, page.pdf_page = source.pdf_asset, source.pdf_page
+        page.width_pt, page.height_pt = source.width_pt, source.height_pt
+    merged[key] = incoming[key]
+    return len(pending)

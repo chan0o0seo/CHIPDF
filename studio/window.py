@@ -31,6 +31,7 @@ from .link_tools import LinkTools
 from .ui.ribbon import OfficeRibbon
 from .ui.theme import apply_theme
 from .ui.page_list import PageList
+from .ui.controls import BOX_ALIGN_ITEMS, TEXT_ALIGN_ITEMS, show_text_alignment
 from . import APP_NAME, __version__
 
 
@@ -94,6 +95,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.canvas.file_dropped.connect(self.open_path)
         self.canvas.files_dropped.connect(self.open_sources)
         self.scene.selectionChanged.connect(self.update_tools)
+        self.scene.selectionChanged.connect(self.refresh_handles)
+        self.canvas.zoom_changed.connect(lambda _value: self.refresh_handles())
         self.make_ui()
         self.init_workflow(auto_ocr)
         self.init_editing()
@@ -104,6 +107,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.init_font_favorites()
         self.init_inspector()
         self.init_ribbon()
+        from .ui.selection_bar import SelectionBar
+        self.selection_bar = SelectionBar(self)
         apply_theme(self)
         self.undo_stack.indexChanged.connect(self.update_tools)
         self.update_tools()
@@ -185,14 +190,13 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.format_bar.addActions([self.bold_action, self.italic_action, self.underline_action])
         self.color_action = self.action("글자색", self.choose_color)
         self.format_bar.addAction(self.color_action)
-        self.align_box = QComboBox()
-        self.align_box.addItems(["왼쪽 정렬", "가운데 정렬", "오른쪽 정렬"])
+        from .ui.controls import SegmentedButtons
+        self.align_box = SegmentedButtons(TEXT_ALIGN_ITEMS)
+        self.align_box.setAccessibleName("문단 정렬")
         self.align_box.activated.connect(self.format_alignment)
         self.format_bar.addWidget(self.align_box)
-        self.vertical_align_box = QComboBox()
-        self.vertical_align_box.addItems(["위 정렬", "세로 가운데 정렬", "아래 정렬"])
+        self.vertical_align_box = SegmentedButtons(BOX_ALIGN_ITEMS)
         self.vertical_align_box.setAccessibleName("상자 안 글자 세로 정렬")
-        self.vertical_align_box.setPlaceholderText("글자 세로 정렬")
         self.vertical_align_box.setToolTip("가로쓰기 상자 안의 글자 전체를 위·가운데·아래로 맞춥니다.")
         self.vertical_align_box.setMinimumWidth(0)
         self.vertical_align_box.activated.connect(self.format_vertical_alignment)
@@ -294,6 +298,12 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             self.statusBar().addPermanentWidget(button)
         self.statusBar().addPermanentWidget(self.zoom_label)
         self.canvas.zoom_changed.connect(lambda value: self.zoom_label.setText(f"{value}%"))
+
+    def refresh_handles(self):
+        # Handles keep a fixed screen size, so their item area follows zoom and selection.
+        for item in self.scene.selectedItems():
+            if hasattr(item, "refresh"):
+                item.refresh()
 
     def selected(self):
         return [item for item in self.scene.selectedItems() if isinstance(item, (TextItem, VisualItem, GroupItem)) and item.model.parent_id == self.active_group_id]
@@ -436,8 +446,7 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             self.size_box.setValue(style.size)
             self.align_box.setCurrentIndex(["left", "center", "right"].index(item.model.paragraphs[0].align))
             vertical = item.model.writing_mode == 'vertical-rl'
-            for i, label in enumerate(['위쪽 정렬', '가운데 정렬', '아래쪽 정렬'] if vertical else ['왼쪽 정렬', '가운데 정렬', '오른쪽 정렬']):
-                self.align_box.setItemText(i, label)
+            show_text_alignment(self.align_box, vertical)
             if hasattr(self, 'vertical_action'):
                 self.vertical_action.setChecked(all(i.model.writing_mode == 'vertical-rl' for i in selected))
             for widget in (self.font_box, self.size_box, self.align_box):
@@ -454,6 +463,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.update_presets_tools()
         self.update_link_tools()
         self.update_inspector()
+        if hasattr(self, "selection_bar"):
+            self.selection_bar.sync()
         self.update_ribbon()
 
     def set_writing_mode(self, mode):
@@ -481,9 +492,11 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         height = min(130, max(50, page.height * 0.15))
         obj = TextBox(x=(page.width - width) / 2, y=(page.height - height) / 2,
                       width=max(24, width), height=height,
-                      parent_id=self.active_group_id, z=max((o.z for o in self.scope_objects()), default=-1) + 1)
+                      parent_id=self.active_group_id, z=max((o.z for o in self.scope_objects()), default=-1) + 1,
+                      auto_width=True, wrap_mode="char")
         self.current_page.objects.append(obj)
         self.rebuild_scene([obj.id])
+        self.items_by_id[obj.id].fit_to_text()
         self.finish_operation("텍스트 추가")
         item = self.items_by_id[obj.id]
         item.begin_edit()
@@ -577,6 +590,53 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         else:
             fmt.setFontUnderline(enabled)
         self.apply_format(fmt)
+
+    def list_targets(self):
+        selected = self.mutable_selection()
+        if not selected or not all(isinstance(i.model, TextBox) and i.model.writing_mode == "horizontal" for i in selected):
+            return []
+        return selected
+
+    def toggle_list(self):
+        """Cycle like design tools: plain → bullets → numbers → plain."""
+        selected = self.list_targets()
+        if selected:
+            current = selected[0].model.paragraphs[0].list_style
+            self.set_list_style({"": "disc", "disc": "decimal", "decimal": ""}[current])
+
+    def set_list_style(self, style):
+        from .richtext import LIST_FORMATS
+        selected = self.list_targets()
+        if not selected:
+            return
+        self.begin_operation()
+        editing = self.editing_item()
+        for item in selected:
+            document = item.document()
+            cursor = item.textCursor() if item.editing else QTextCursor(document)
+            if not item.editing:
+                cursor.select(QTextCursor.Document)
+            first = document.findBlock(cursor.selectionStart())
+            last = document.findBlock(cursor.selectionEnd())
+            edit = QTextCursor(first)
+            edit.beginEditBlock()
+            block = first
+            while block.isValid():
+                if block.textList():
+                    block.textList().remove(block)
+                plain = QTextBlockFormat()
+                plain.setIndent(0)
+                QTextCursor(block).mergeBlockFormat(plain)
+                if block == last:
+                    break
+                block = block.next()
+            if style:
+                edit.setPosition(first.position())
+                edit.setPosition(last.position() + last.length() - 1, QTextCursor.KeepAnchor)
+                edit.createList(LIST_FORMATS[style])
+            edit.endEditBlock()
+        if not editing:
+            self.finish_operation("목록")
 
     def choose_color(self):
         color = QColorDialog.getColor(parent=self, title="글자색")
