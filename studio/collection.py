@@ -318,11 +318,13 @@ class Collection:
             raise ValueError('원본과 작업 파일은 보존합니다. 다른 이름으로 저장해 주세요.')
         return path
 
-    def export_pages(self, path, indices, kind, cancel=None, progress=lambda value: None):
+    def export_pages(self, path, indices, kind, cancel=None, progress=lambda value: None,
+                     text_mode='text', report=None):
         self.finish_edit()
         self.sync_positions()
         path = self.check_output_path(path)
-        return export_collection(self.project, self.assets, indices, path, kind, cancel, progress)
+        return export_collection(self.project, self.assets, indices, path, kind, cancel, progress,
+                                 text_mode, report)
 
     def choose_collection_export(self):
         if not self.project:
@@ -355,8 +357,13 @@ class Collection:
         kind.setAccessibleName('완성본 파일 형식')
         kind.addItem('PNG 이미지', 'png')
         kind.addItem('PDF 문서', 'pdf')
+        text_kind = QComboBox()
+        text_kind.setAccessibleName('PDF 한국어 글자 출력 방식')
+        text_kind.addItem('글자로 넣기 · 용량 작음', 'text')
+        text_kind.addItem('이미지로 넣기 · 이전 방식', 'image')
         form.addRow('저장 범위', scope)
         form.addRow('파일 형식', kind)
+        form.addRow('한국어 글자', text_kind)
         layout.addLayout(form)
 
         summary_card = QFrame()
@@ -379,10 +386,15 @@ class Collection:
 
         def update_summary():
             count = len(scope.currentData())
+            text_kind.setEnabled(kind.currentData() == 'pdf')
             if kind.currentData() == 'pdf':
                 count_label.setText(f'{count}페이지 · PDF 파일 1개')
-                note.setText('현재 모습과 내부 페이지 링크를 함께 저장합니다.\n'
-                             '원본 PDF가 보관된 페이지는 수정 영역만 덧입힙니다. 원문 텍스트는 내부에 남습니다.\n'
+                if text_kind.currentData() == 'text':
+                    detail = ('원본 PDF가 보관된 페이지는 번역한 원문 텍스트를 지우고 한국어를 검색 가능한 글자로 넣습니다.\n'
+                              '그림 속 원문을 지운 자리만 이미지로 덧입힙니다. 화면과 다르게 보일 페이지는 글자를 이미지로 넣습니다.')
+                else:
+                    detail = '원본 PDF가 보관된 페이지는 수정 영역을 이미지로 덧입힙니다. 원문 텍스트는 내부에 남습니다.'
+                note.setText('현재 모습과 내부 페이지 링크를 함께 저장합니다.\n' + detail + '\n'
                              '저장 범위에 포함되지 않은 페이지로 가는 링크는 제외됩니다.')
             else:
                 count_label.setText(f'{count}페이지 · PNG 이미지 {count}개')
@@ -390,6 +402,7 @@ class Collection:
                              + ('\n여러 이미지는 새 폴더에 함께 저장합니다.' if count > 1 else ''))
         scope.currentIndexChanged.connect(update_summary)
         kind.currentIndexChanged.connect(update_summary)
+        text_kind.currentIndexChanged.connect(update_summary)
         update_summary()
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -434,9 +447,14 @@ class Collection:
             progress.setValue(value)
             progress.setLabelText(f'완성본 만드는 중 · {value}/{len(indices)}')
             QApplication.processEvents()
+        report = {}
         try:
-            self.export_pages(destination, indices, format_name, progress.wasCanceled, advance)
-            self.status.setText(f'완성본 {len(indices)}장 저장됨 · {Path(destination).name}')
+            self.export_pages(destination, indices, format_name, progress.wasCanceled, advance,
+                              text_kind.currentData(), report)
+            message = f'완성본 {len(indices)}장 저장됨 · {Path(destination).name}'
+            if report.get('image_text_pages'):
+                message += f" · 글자를 이미지로 넣은 페이지 {len(report['image_text_pages'])}장"
+            self.status.setText(message)
         except Cancelled as exc:
             self.status.setText(str(exc))
         except (OSError, ValueError) as exc:

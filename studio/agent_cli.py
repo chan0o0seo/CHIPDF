@@ -335,8 +335,30 @@ def export(args):
     report = previews(project, assets, indices, Path(str(output) + '.preview'))
     if report['blocking_count'] and not args.allow_incomplete:
         raise ValueError(f"Export blocked by {report['blocking_count']} layout/source issues. See {output}.preview/report.json")
-    export_collection(project, assets, indices, output, 'pdf')
-    return {'pdf': str(output), 'preview': str(output) + '.preview', 'report': report}
+    exported = {}
+    export_collection(project, assets, indices, output, 'pdf', text_mode=args.text_mode, report=exported)
+    # Pages without an embedded source PDF are exported as whole-page images,
+    # which is usually what makes a localized PDF many times larger.
+    raster = [indices[i]+1 for i in exported.get('raster_pages', [])]
+    image_text = [indices[i]+1 for i in exported.get('image_text_pages', [])]
+    sources = {project.pages[i].pdf_asset for i in indices} - {''}
+    source_bytes = sum(len(assets[key]) for key in sources)
+    result = {'pdf': str(output), 'preview': str(output) + '.preview', 'report': report,
+              'text_mode': args.text_mode, 'raster_pages': raster, 'image_text_pages': image_text,
+              'removed_source_text': exported.get('removed_source_text', 0),
+              'pdf_bytes': output.stat().st_size}
+    if source_bytes:
+        result['size_ratio'] = round(output.stat().st_size/source_bytes, 2)
+    warnings = []
+    if raster:
+        warnings.append(f'{len(raster)} page(s) have no embedded source PDF and were exported as '
+                        'page images. Keep pdf_asset/pdf_page in the project to preserve the original.')
+    if image_text:
+        warnings.append(f'{len(image_text)} page(s) did not match the editor rendering as real text and '
+                        'keep their Korean text as images. Check fonts (--font-file) on those pages.')
+    if warnings:
+        result['warning'] = ' '.join(warnings)
+    return result
 
 
 def main(argv=None):
@@ -384,6 +406,9 @@ def main(argv=None):
     p.add_argument('--pages')
     p.add_argument('--overwrite', action='store_true')
     p.add_argument('--allow-incomplete', action='store_true', help='Explicitly export despite blocking report issues.')
+    p.add_argument('--text-mode', choices=('text', 'image'), default='text',
+                   help='text: delete translated source text and write Korean as real text (default); '
+                        'image: previous output with Korean drawn as images.')
     p.set_defaults(run=export)
     args = parser.parse_args(argv)
     try:

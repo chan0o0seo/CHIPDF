@@ -44,6 +44,10 @@ class SourcePdfTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
+        # Offscreen Qt on Windows does not enumerate system fonts; without a
+        # real font both renderers draw differing missing-glyph boxes.
+        from studio.agent_cli import load_fonts
+        load_fonts([])
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=ROOT / 'qa', prefix='source-pdf-')
@@ -89,7 +93,7 @@ class SourcePdfTests(unittest.TestCase):
         source = self.fixture()
         original = source.read_bytes()
         project, assets, _ = import_files([source])
-        self.assertEqual(project.version, 12)
+        self.assertEqual(project.version, 13)
         self.assertEqual(project.pages[0].pdf_asset, project.pages[1].pdf_asset)
         saved = self.work / 'edited.twproj'
         save_project(saved, project, assets)
@@ -118,7 +122,8 @@ class SourcePdfTests(unittest.TestCase):
         legacy = deepcopy(project)
         legacy.pages[0].pdf_asset, legacy.pages[0].pdf_page = '', -1
         export_collection(legacy, assets, [0], raster, 'pdf')
-        self.assertLess(output.stat().st_size, raster.stat().st_size/3)
+        self.assertLess(output.stat().st_size, len(original)*1.1)
+        self.assertLess(output.stat().st_size, raster.stat().st_size/2)
         print(f'PDF size comparison: original={len(original)}, native={output.stat().st_size}, raster={raster.stat().st_size}')
         self.assertIn('Source text 1', PdfReader(output).pages[0].extract_text())
         self.assertEqual(source.read_bytes(), original)
@@ -128,6 +133,148 @@ class SourcePdfTests(unittest.TestCase):
         original_image = pdf_image(source)
         self.assertIsNone(ImageChops.difference(original_image.crop((600, 400, 900, 700)),
                                               actual.crop((600, 400, 900, 700))).getbbox())
+
+    def page_images(self, path):
+        images = []
+        for name, ref in PdfReader(path).pages[0]['/Resources']['/XObject'].items():
+            image = ref.get_object()
+            filters = image.get('/Filter')
+            filters = [str(f) for f in (filters if isinstance(filters, list) else [filters])]
+            mask = image.get('/SMask')
+            if mask is not None:
+                found = mask.get_object().get('/Filter')
+                filters += [str(f) for f in (found if isinstance(found, list) else [found])]
+            images.append((int(image['/Width']), int(image['/Height']), filters))
+        return images
+
+    def test_restored_source_pixels_stay_native(self):
+        # A repair that copies untouched source lines must not repaint them:
+        # resampled raster copies land beside the vector lines as double edges.
+        source = self.fixture(count=1)
+        project, assets, _ = import_files([source])
+        page = project.pages[0]
+        rect = [100, 150, 400, 250]
+        with Image.open(BytesIO(assets[page.asset])) as decoded:
+            patch = decoded.convert('RGBA').crop((rect[0], rect[1], rect[0]+rect[2], rect[1]+rect[3]))
+        ImageDraw.Draw(patch).rectangle((0, 0, rect[2], 70), fill='#ffffff')
+        page.objects = [TextBox(x=600, y=500, width=250, height=80, erase_rect=rect,
+                                erase_patch=encode_png(patch),
+                                erase_mask=encode_png(Image.new('L', patch.size, 255)),
+                                paragraphs=[Paragraph([Run('Edited', Style(size=24))])])]
+        output = self.work / 'native.pdf'
+        export_collection(project, assets, [0], output, 'pdf')
+        self.assertTrue(all(height < 150 for _, height, _ in self.page_images(output)))
+        band = (150, 345, 450, 395)
+        self.assertIsNone(ImageChops.difference(pdf_image(source).crop(band),
+                                                pdf_image(output).crop(band)).getbbox())
+        # The removed source text is covered.
+        self.assertGreater(min(pdf_image(output).convert('L').crop((105, 160, 495, 215)).getextrema()), 250)
+
+    def two_line_fixture(self, photo=False):
+        source = self.work / 'lines.pdf'
+        canvas = Canvas(str(source), pagesize=(360, 288), pageCompression=1)
+        if photo:
+            randomizer = random.Random(7)
+            image = Image.frombytes('RGB', (360, 288), randomizer.randbytes(360*288*3))
+            encoded = BytesIO()
+            image.save(encoded, 'JPEG', quality=70)
+            canvas.drawImage(ImageReader(BytesIO(encoded.getvalue())), 0, 0, 360, 288)
+        canvas.setFont('Helvetica', 14)
+        canvas.drawString(45, 215, 'Translated line')
+        canvas.drawString(45, 100, 'Kept line')
+        canvas.showPage()
+        canvas.save()
+        return source
+
+    def erase_box(self, page, assets, text, rect, color=None):
+        with Image.open(BytesIO(assets[page.clean_asset or page.asset])) as decoded:
+            patch = decoded.convert('RGBA').crop((rect[0], rect[1], rect[0]+rect[2], rect[1]+rect[3]))
+        if color:
+            ImageDraw.Draw(patch).rectangle((10, 10, 60, 40), fill=color)
+        return TextBox(x=rect[0], y=rect[1], width=rect[2], height=rect[3], erase_rect=rect,
+                       erase_patch=encode_png(patch), erase_mask=encode_png(Image.new('L', patch.size, 255)),
+                       paragraphs=[Paragraph([Run(text, Style(size=24, color='#c00000'))])])
+
+    def test_text_mode_replaces_translated_source_text_with_real_text(self):
+        project, assets, _ = import_files([self.two_line_fixture()])
+        page = project.pages[0]
+        page.objects = [self.erase_box(page, assets, 'Korean here', [110, 150, 400, 70])]
+        output, legacy = self.work / 'text.pdf', self.work / 'image.pdf'
+        report = {}
+        export_collection(project, assets, [0], output, 'pdf', report=report)
+        export_collection(project, assets, [0], legacy, 'pdf', text_mode='image')
+        text = ' '.join(PdfReader(output).pages[0].extract_text().split())
+        self.assertIn('Korean here', text)
+        self.assertIn('Kept line', text)
+        self.assertNotIn('Translated', text)
+        self.assertEqual(report['image_text_pages'], [])
+        self.assertGreaterEqual(report['removed_source_text'], 1)
+        # Native text was deleted, so no background image is needed at all.
+        self.assertFalse(PdfReader(output).pages[0]['/Resources'].get('/XObject'))
+        expected, actual = pdf_image(legacy), pdf_image(output)
+        self.assertLess(sum(ImageStat.Stat(ImageChops.difference(expected, actual)).mean)/3, 1.5)
+
+    def test_text_mode_patches_text_inside_pictures(self):
+        project, assets, _ = import_files([self.two_line_fixture(photo=True)])
+        page = project.pages[0]
+        # The red mark stands for repaired picture pixels that no text deletion explains.
+        page.objects = [self.erase_box(page, assets, 'Korean here', [110, 150, 400, 70], '#ff0000')]
+        output = self.work / 'text.pdf'
+        report = {}
+        export_collection(project, assets, [0], output, 'pdf', report=report)
+        self.assertEqual(report['image_text_pages'], [])
+        images = self.page_images(output)
+        self.assertEqual(len(images), 2)
+        self.assertLess(min(w*h for w, h, _ in images), 100*60)
+        red = pdf_image(output).getpixel((150, 185))
+        self.assertTrue(red[0] > 240 and max(red[1:]) < 15, red)
+        self.assertIn('Korean here', ' '.join(PdfReader(output).pages[0].extract_text().split()))
+
+    def test_text_mode_falls_back_to_image_text_when_rendering_differs(self):
+        from studio import source_pdf
+        project, assets, _ = import_files([self.two_line_fixture()])
+        page = project.pages[0]
+        page.objects = [self.erase_box(page, assets, 'Korean here', [110, 150, 400, 70])]
+        output = self.work / 'fallback.pdf'
+        report = {}
+        limit = source_pdf.FIDELITY_LIMIT
+        source_pdf.FIDELITY_LIMIT = -1
+        try:
+            export_collection(project, assets, [0], output, 'pdf', report=report)
+        finally:
+            source_pdf.FIDELITY_LIMIT = limit
+        self.assertEqual(report['image_text_pages'], [0])
+        text = ' '.join(PdfReader(output).pages[0].extract_text().split())
+        self.assertNotIn('Korean', text)
+        self.assertNotIn('Translated', text)
+        self.assertIn('Kept line', text)
+
+    def test_touching_edits_share_one_image_and_distant_edits_stay_apart(self):
+        project, assets, _ = import_files([self.fixture(count=1)])
+        page = project.pages[0]
+        # The wide edit crosses the former 512 px tile boundary.
+        page.objects = [ShapeBox(x=100, y=100, width=700, height=80, fill='#ff0000'),
+                        ShapeBox(x=100, y=600, width=60, height=60, fill='#00ff00')]
+        output = self.work / 'native.pdf'
+        export_collection(project, assets, [0], output, 'pdf', text_mode='image')
+        widths = sorted(width for width, _, _ in self.page_images(output))
+        self.assertEqual(len(widths), 2)
+        self.assertGreaterEqual(widths[1], 700)
+        self.assertLess(widths[0], 80)
+
+    def test_raster_pages_use_jpeg_only_for_photos_without_ascii85(self):
+        for photo in (True, False):
+            with self.subTest(photo=photo):
+                project, assets, _ = import_files([self.fixture(count=1, photo=photo)])
+                project.pages[0].pdf_asset, project.pages[0].pdf_page = '', -1
+                output = self.work / f'raster-{photo}.pdf'
+                export_collection(project, assets, [0], output, 'pdf')
+                [(_, _, filters)] = self.page_images(output)
+                self.assertNotIn('/ASCII85Decode', filters)
+                self.assertIn('/DCTDecode' if photo else '/FlateDecode', filters)
+                expected = pdf_image(self.work / 'original.pdf')
+                self.assertLess(sum(ImageStat.Stat(ImageChops.difference(expected, pdf_image(output))).mean)/3,
+                                12 if photo else 1)
 
     def test_rotated_crop_and_grouped_edits_match_legacy_rendering(self):
         for rotation in (0, 90, 180, 270):
@@ -229,11 +376,87 @@ class SourcePdfTests(unittest.TestCase):
         key = project.pages[0].pdf_asset
         project.pages[0].pdf_asset, project.pages[0].pdf_page = '', -1
         del assets[key]
-        repaired, merged, matched, _ = prepare_pdf_repair(project, assets, [source])
+        repaired, merged, matched, _, positional = prepare_pdf_repair(project, assets, [source])
         self.assertEqual(matched, 1)
+        self.assertEqual(positional, 0)
         self.assertEqual(repaired.pages[0].pdf_asset, key)
         self.assertIn(key, merged)
         self.assertFalse(project.pages[0].pdf_asset)
+
+    def recomposited(self, project, assets, extra_row=True, points=(270, 216)):
+        """Imitate pages rebuilt outside the editor: one more pixel row, new print size."""
+        for page in project.pages:
+            with Image.open(BytesIO(assets[page.asset])) as decoded:
+                image = decoded.convert('RGB').resize((page.width, page.height+int(extra_row)), Image.Resampling.BICUBIC)
+            ImageDraw.Draw(image).rectangle((600, 400, 760, 470), fill='#3355aa')
+            encoded = BytesIO()
+            image.save(encoded, 'PNG')
+            assets[page.asset] = encoded.getvalue()
+            page.height = image.height
+            page.width_pt, page.height_pt = points
+            page.pdf_asset, page.pdf_page = '', -1
+            page.clean_asset, page.native_chars = '', []
+        for key in [k for k in assets if k.endswith('.pdf') or k.endswith('_background.png')]:
+            del assets[key]
+
+    def test_repair_attaches_recomposited_pages_by_position(self):
+        from studio.pdf_repair import prepare_pdf_repair
+        source = self.fixture(count=2)
+        project, assets, _ = import_files([source])
+        self.recomposited(project, assets)
+        project.pages[0].objects = [TextBox(x=100, y=600, width=300, height=70,
+                                           paragraphs=[Paragraph([Run('Added', Style(size=24))])])]
+        repaired, merged, matched, _, positional = prepare_pdf_repair(project, assets, [source])
+        self.assertEqual((matched, positional), (0, 2))
+        self.assertEqual([p.pdf_page for p in repaired.pages], [0, 1])
+        self.assertEqual({(p.width_pt, p.height_pt) for p in repaired.pages}, {(360, 288)})
+        # Rebuilt backgrounds are kept as they are; only the link is added.
+        self.assertEqual(merged[repaired.pages[0].asset], assets[project.pages[0].asset])
+        output = self.work / 'positional.pdf'
+        report = {}
+        export_collection(repaired, merged, [0, 1], output, 'pdf', report=report)
+        reader = PdfReader(output)
+        self.assertEqual([round(float(p.mediabox.width)) for p in reader.pages], [360, 360])
+        self.assertEqual(report['raster_pages'], [])
+        self.assertIn('Added', reader.pages[0].extract_text())
+        self.assertIn('Source text 2', reader.pages[1].extract_text())
+        # The rectangle drawn into the rebuilt background is added as a patch.
+        blue = pdf_image(output).getpixel((680, 435))
+        self.assertTrue(blue[2] > 150 and blue[0] < 90, blue)
+
+    def test_repair_by_position_needs_same_page_count_and_proportions(self):
+        from studio.pdf_repair import prepare_pdf_repair
+        source = self.fixture(count=2)
+        for change in ('count', 'ratio'):
+            with self.subTest(change=change):
+                project, assets, _ = import_files([source])
+                self.recomposited(project, assets, points=(270, 216) if change == 'count' else (270, 270))
+                if change == 'count':
+                    project.pages = project.pages[:1]
+                with self.assertRaisesRegex(ValueError, '찾지 못했습니다'):
+                    prepare_pdf_repair(project, assets, [source])
+
+    def test_repair_does_not_guess_positions_for_reordered_work(self):
+        from studio.pdf_repair import prepare_pdf_repair
+        source = self.fixture(count=2)
+        project, assets, _ = import_files([source])
+        first, second = project.pages
+        # The second source page still matches exactly but now comes first.
+        with Image.open(BytesIO(assets[first.asset])) as decoded:
+            image = decoded.convert('RGB')
+        ImageDraw.Draw(image).rectangle((600, 400, 760, 470), fill='#3355aa')
+        encoded = BytesIO()
+        image.save(encoded, 'PNG')
+        assets[first.asset] = encoded.getvalue()
+        project.pages = [second, first]
+        for page in project.pages:
+            page.pdf_asset, page.pdf_page = '', -1
+        for key in [k for k in assets if k.endswith('.pdf')]:
+            del assets[key]
+        repaired, _, matched, _, positional = prepare_pdf_repair(project, assets, [source])
+        self.assertEqual((matched, positional), (1, 0))
+        self.assertEqual(repaired.pages[0].pdf_page, 1)
+        self.assertFalse(repaired.pages[1].pdf_asset)
 
 
 if __name__ == '__main__':

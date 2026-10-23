@@ -490,6 +490,39 @@ QLabel#inspectorNotice {
     border-radius: 6px;
     padding: 10px;
 }
+QLabel#inspectorSubTitle, QLabel#paletteTitle {
+    color: $textSecondary;
+    font-size: ${smallFontSize}pt;
+    padding: 4px 0 0 0;
+}
+QWidget#colorPalette {
+    background: $panelSurface;
+}
+QFrame#quickBar {
+    background: $panelSurface;
+    border: 1px solid $divider;
+    border-radius: 8px;
+}
+QFrame#quickBar QToolButton {
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+QFrame#quickBar QToolButton:hover {
+    background: $accentSoft;
+}
+QListWidget#layerList {
+    border: 1px solid $divider;
+    border-radius: 6px;
+    background: $panelSurface;
+}
+QListWidget#layerList::item {
+    padding: 7px 8px;
+    border-bottom: 1px solid $divider;
+}
+QListWidget#layerList::item:selected {
+    background: $accentSoft;
+    color: $text;
+}
 QLabel#sourceCrop {
     background: $appBackground;
     border: 1px solid $divider;

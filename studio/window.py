@@ -94,6 +94,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.canvas.file_dropped.connect(self.open_path)
         self.canvas.files_dropped.connect(self.open_sources)
         self.scene.selectionChanged.connect(self.update_tools)
+        self.scene.selectionChanged.connect(self.refresh_handles)
+        self.canvas.zoom_changed.connect(lambda _value: self.refresh_handles())
         self.make_ui()
         self.init_workflow(auto_ocr)
         self.init_editing()
@@ -104,6 +106,8 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
         self.init_font_favorites()
         self.init_inspector()
         self.init_ribbon()
+        from .ui.quick_bar import QuickBar
+        self.quick_bar = QuickBar(self)
         apply_theme(self)
         self.undo_stack.indexChanged.connect(self.update_tools)
         self.update_tools()
@@ -294,6 +298,12 @@ class Editor(QMainWindow, Workflow, Editing, LayoutTools, Collection, Presets, F
             self.statusBar().addPermanentWidget(button)
         self.statusBar().addPermanentWidget(self.zoom_label)
         self.canvas.zoom_changed.connect(lambda value: self.zoom_label.setText(f"{value}%"))
+
+    def refresh_handles(self):
+        # Handles keep a fixed screen size, so their item area follows zoom and selection.
+        for item in self.scene.selectedItems():
+            if hasattr(item, "refresh"):
+                item.refresh()
 
     def selected(self):
         return [item for item in self.scene.selectedItems() if isinstance(item, (TextItem, VisualItem, GroupItem)) and item.model.parent_id == self.active_group_id]

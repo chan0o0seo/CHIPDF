@@ -126,7 +126,7 @@ class RegionTools(BrushOptions):
             if self.project != snapshot:
                 self.status.setText('처리 중 편집 내용이 바뀌었습니다 · PDF 원래 배경 적용을 다시 실행해 주세요')
                 return
-            project, updated_assets, pages, regions = result
+            project, updated_assets, pages, regions, positional = result
             self.begin_operation()
             self.project, self.assets = project, updated_assets
             self.background_signature = None
@@ -134,7 +134,9 @@ class RegionTools(BrushOptions):
             self.refresh_card_list()
             self.finish_operation('PDF 원래 배경 적용')
             self.autosave()
-            self.status.setText(f'원래 PDF 배경 적용 · {pages}장 · 원문 {regions}개 · 기존 번역문과 배치 유지')
+            self.status.setText(f'원래 PDF 배경 적용 · {pages}장 · 원문 {regions}개'
+                                + (f' · 위치 기준 원본 연결 {positional}장' if positional else '')
+                                + ' · 기존 번역문과 배치 유지')
         self.launch_job(lambda cancel, progress: prepare_pdf_repair(snapshot, assets, paths, cancel.is_set, progress), accept)
 
     def start_region_ocr(self, rect: QRectF):

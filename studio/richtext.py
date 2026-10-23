@@ -18,7 +18,22 @@ def char_format(style: Style) -> QTextCharFormat:
     fmt.setFontItalic(style.italic)
     fmt.setFontUnderline(style.underline)
     fmt.setFontStrikeOut(style.strike)
+    if style.letter_spacing:
+        # Untouched text keeps Qt's default font, which the PDF writer embeds compactly.
+        fmt.setFontLetterSpacingType(QFont.PercentageSpacing)
+        fmt.setFontLetterSpacing(100 + letter_spacing_percent(style.letter_spacing))
     return fmt
+
+
+def letter_spacing_percent(value):
+    """1/1000 em as a percentage of the advance; exact for full-width Hangul."""
+    return value / 10
+
+
+def letter_spacing_from(fmt):
+    if fmt.fontLetterSpacingType() != QFont.PercentageSpacing or fmt.fontLetterSpacing() in (0, 100):
+        return 0.0
+    return round((fmt.fontLetterSpacing() - 100) * 10, 1)
 
 
 def populate(document, paragraphs, margin=8):
@@ -61,14 +76,15 @@ def extract(document, default_color="#253345") -> list[Paragraph]:
                 font = fmt.font().resolve(document.defaultFont())
                 color = default_color if fmt.foreground().style() == Qt.NoBrush else fmt.foreground().color().name()
                 style = Style(font.family(), font.pointSizeF(), color, font.weight() >= QFont.Bold,
-                              font.italic(), font.underline(), font.strikeOut())
+                              font.italic(), font.underline(), font.strikeOut(), letter_spacing_from(fmt))
                 runs.append(Run(fragment.text(), style))
             it += 1
         if not runs:
             fmt = QTextCursor(block).charFormat()
             font = fmt.font().resolve(document.defaultFont())
             color = default_color if fmt.foreground().style() == Qt.NoBrush else fmt.foreground().color().name()
-            runs = [Run("", Style(font.family(), font.pointSizeF(), color, font.bold(), font.italic(), font.underline(), font.strikeOut()))]
+            runs = [Run("", Style(font.family(), font.pointSizeF(), color, font.bold(), font.italic(), font.underline(),
+                                  font.strikeOut(), letter_spacing_from(fmt)))]
         fmt = block.blockFormat()
         spacing = fmt.lineHeight()/100 if fmt.lineHeightType() == QTextBlockFormat.ProportionalHeight.value else 1.0
         paragraphs.append(Paragraph(runs, align, spacing, fmt.topMargin(), fmt.bottomMargin()))

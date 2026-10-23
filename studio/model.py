@@ -8,6 +8,11 @@ from uuid import uuid4
 from .platform_support import default_font_family
 
 
+def _number_in(value, lower, upper) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool) and
+            math.isfinite(value) and lower <= value <= upper)
+
+
 def uid() -> str:
     return uuid4().hex
 
@@ -21,6 +26,8 @@ class Style:
     italic: bool = False
     underline: bool = False
     strike: bool = False
+    # Extra space between letters in 1/1000 em, as in design tools.
+    letter_spacing: float = 0.0
 
 
 @dataclass
@@ -76,6 +83,13 @@ class ImageBox(ObjectBox):
     flip_h: bool = False
     flip_v: bool = False
     aspect_locked: bool = True
+    # Adjustments in percent, -100..100; 0 keeps the inserted image.
+    brightness: float = 0.0
+    contrast: float = 0.0
+    saturation: float = 0.0
+    corner_radius: float = 0.0
+    border_color: str = "#000000"
+    border_width: float = 0.0
 
 
 @dataclass
@@ -107,6 +121,18 @@ class TextBox(ObjectBox):
     erase_mask: str = ""
     link_mode: str = "auto"
     link_page_id: str = ""
+    # Letters and the box background fade independently of ``opacity``.
+    text_opacity: float = 1.0
+    fill_opacity: float = 1.0
+    highlight: str = "transparent"
+    outline_color: str = "#000000"
+    outline_width: float = 0.0
+    shadow_enabled: bool = False
+    shadow_color: str = "#000000"
+    shadow_opacity: float = .5
+    shadow_dx: float = 3.0
+    shadow_dy: float = 3.0
+    shadow_blur: float = 0.0
 
     @property
     def text(self) -> str:
@@ -149,7 +175,7 @@ class Page:
 class Project:
     id: str = field(default_factory=uid)
     name: str = "새 작업"
-    version: int = 12
+    version: int = 13
     pages: list[Page] = field(default_factory=lambda: [Page()])
     translation_engine: str = "chrome"
     glossary: list[dict] = field(default_factory=list)
@@ -160,7 +186,7 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict) -> Project:
-        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
+        if data.get("version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):
             raise ValueError("지원하지 않는 프로젝트 버전입니다.")
         from .translation_quality import validate_translation_data
         validate_translation_data(data.get("translation_engine", "chrome"),
@@ -312,6 +338,12 @@ class Project:
                     for key in ("flip_h", "flip_v", "aspect_locked"):
                         if not isinstance(obj.get(key, key == "aspect_locked"), bool):
                             raise ValueError("이미지 설정이 올바르지 않습니다.")
+                    for key, lower, upper in (("brightness", -100, 100), ("contrast", -100, 100), ("saturation", -100, 100),
+                                              ("corner_radius", 0, 4000), ("border_width", 0, 60)):
+                        if not _number_in(obj.get(key, 0), lower, upper):
+                            raise ValueError("이미지 효과 값이 올바르지 않습니다.")
+                    if not re.fullmatch(r"#[a-fA-F0-9]{6}", obj.get("border_color", "#000000")):
+                        raise ValueError("이미지 테두리 색이 올바르지 않습니다.")
                     objects.append(ImageBox(**obj))
                     continue
                 paragraphs = []
@@ -340,6 +372,19 @@ class Project:
                 margin = obj.get("margin", 8)
                 if not isinstance(margin, (int, float)) or not math.isfinite(margin) or not 0 <= margin <= 200:
                     raise ValueError("안쪽 여백이 올바르지 않습니다.")
+                for key, default, lower, upper in (("text_opacity", 1, 0, 1), ("fill_opacity", 1, 0, 1),
+                                                   ("shadow_opacity", .5, 0, 1), ("outline_width", 0, 0, 40),
+                                                   ("shadow_dx", 3, -200, 200), ("shadow_dy", 3, -200, 200),
+                                                   ("shadow_blur", 0, 0, 60)):
+                    if not _number_in(obj.get(key, default), lower, upper):
+                        raise ValueError("글자 효과 값이 올바르지 않습니다.")
+                if not isinstance(obj.get("shadow_enabled", False), bool):
+                    raise ValueError("그림자 설정이 올바르지 않습니다.")
+                for key in ("outline_color", "shadow_color"):
+                    if not re.fullmatch(r"#[a-fA-F0-9]{6}", obj.get(key, "#000000")):
+                        raise ValueError("글자 효과 색이 올바르지 않습니다.")
+                if obj.get("highlight", "transparent") != "transparent" and not re.fullmatch(r"#[a-fA-F0-9]{6}", obj["highlight"]):
+                    raise ValueError("글자 배경색이 올바르지 않습니다.")
                 for para in obj["paragraphs"]:
                     if para["align"] not in ("left", "center", "right"):
                         raise ValueError("문단 정렬이 올바르지 않습니다.")
@@ -355,6 +400,8 @@ class Project:
                             raise ValueError("글꼴 서식이 올바르지 않습니다.")
                         if not math.isfinite(style.size) or not 1 <= style.size <= 400:
                             raise ValueError("글자 크기가 올바르지 않습니다.")
+                        if not _number_in(style.letter_spacing, -200, 1000):
+                            raise ValueError("자간이 올바르지 않습니다.")
                         if not re.fullmatch(r"#[a-fA-F0-9]{6}", style.color) or not isinstance(run["text"], str):
                             raise ValueError("글자 정보가 올바르지 않습니다.")
                         runs.append(Run(run["text"], style))
@@ -393,7 +440,7 @@ class Project:
             for obj in page.objects:
                 if isinstance(obj, TextBox) and obj.link_mode == 'page' and obj.link_page_id not in page_ids:
                     raise ValueError('텍스트 링크 대상 페이지가 없습니다.')
-        return cls(id=data["id"], name=data["name"], version=12, pages=pages,
+        return cls(id=data["id"], name=data["name"], version=13, pages=pages,
                    translation_engine=data.get("translation_engine", "chrome"),
                    glossary=[dict(row, forbidden=list(row["forbidden"])) for row in data.get("glossary", [])],
                    translation_memory=[dict(row) for row in data.get("translation_memory", [])])
